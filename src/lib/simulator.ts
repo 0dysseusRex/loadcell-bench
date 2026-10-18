@@ -41,6 +41,7 @@ export class SimulatorSource {
   private rng = mulberry32(0x4b32);
   overflows = 0;
   gaps = 0;
+  errors = 0;
 
   subscribe(cb: Listener): () => void {
     this.listeners.add(cb);

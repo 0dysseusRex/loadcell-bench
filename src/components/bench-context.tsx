@@ -32,7 +32,8 @@ import {
 } from "@/lib/analyze";
 import { isSaturated } from "@/lib/ads1220";
 import { H36Session } from "@/lib/klipper/session";
-import { CELL, GAINS, estimateScale } from "@/lib/model";
+import { FRONTS, frontById, type FrontEnd } from "@/lib/frontends";
+import { CELL, estimateScale } from "@/lib/model";
 import { SimulatorSource } from "@/lib/simulator";
 
 export type Phase = "idle" | "connecting" | "ready" | "streaming" | "busy";
@@ -51,17 +52,20 @@ export type Capture = {
 export type RangeStep = { grams: number; counts: number; saturated: boolean; stdev: number };
 
 type Source = {
-  kind: "h36" | "simulator";
+  kind: "mcu" | "simulator";
   start(opts: StreamOptions): Promise<void>;
   stop(): Promise<void>;
   subscribe(cb: (batch: Sample[]) => void): () => void;
   overflows: number;
   gaps: number;
+  errors: number;
   setLoad?(grams: number): void;
 };
 
 type BenchApi = {
-  mode: "idle" | "sim" | "h36";
+  mode: "idle" | "sim" | "mcu";
+  front: FrontEnd;
+  setFront: (id: string) => void;
   phase: Phase;
   error: string | null;
   log: string[];
@@ -91,10 +95,11 @@ type BenchApi = {
   noiseGrams: number | null;
   overflows: number;
   gaps: number;
+  linkErrors: number;
   saturatedNow: boolean;
   busyLabel: string;
   connectSim: () => void;
-  connectH36: () => Promise<void>;
+  connectBoard: () => Promise<void>;
   disconnect: () => Promise<void>;
   startStream: () => Promise<void>;
   stopStream: () => Promise<void>;
@@ -142,6 +147,7 @@ const SPEED_DEFAULT = [90, 175, 330, 660];
 
 export function BenchProvider({ children }: { children: ReactNode }) {
   const [mode, setMode] = useState<BenchApi["mode"]>("idle");
+  const [front, setFrontState] = useState<FrontEnd>(FRONTS[0]);
   const [phase, setPhase] = useState<Phase>("idle");
   const [error, setError] = useState<string | null>(null);
   const [log, setLog] = useState<string[]>([]);
@@ -181,6 +187,7 @@ export function BenchProvider({ children }: { children: ReactNode }) {
   const unsubRef = useRef<(() => void) | null>(null);
   const abortRef = useRef(false);
   const gainRef = useRef(gain);
+  const frontRef = useRef(front);
   const rateRef = useRef(sampleRate);
   const vrefRef = useRef(vref);
   const invertRef = useRef(invert);
@@ -189,6 +196,7 @@ export function BenchProvider({ children }: { children: ReactNode }) {
   const scaleSourceRef = useRef(scaleSource);
   const idRef = useRef(1);
   gainRef.current = gain;
+  frontRef.current = front;
   rateRef.current = sampleRate;
   vrefRef.current = vref;
   invertRef.current = invert;
@@ -300,9 +308,34 @@ export function BenchProvider({ children }: { children: ReactNode }) {
           vref: vrefRef.current,
         }).countsPerGram,
       );
-      pushLog("Simulator is on. Numbers come from the flexure sketch, not from the H36.");
+      pushLog(`Simulator is on for ${frontRef.current.label}. Numbers come from the flexure sketch, not from a board.`);
     })();
   }, [disconnect, pushLog]);
+
+  const setFront = useCallback((id: string) => {
+    if (sourceRef.current) return;
+    const next = frontById(id);
+    setFrontState(next);
+    frontRef.current = next;
+    setGainState(next.defaultGain);
+    gainRef.current = next.defaultGain;
+    setSampleRateState(next.defaultRate);
+    rateRef.current = next.defaultRate;
+    setVrefState(next.vref);
+    vrefRef.current = next.vref;
+    setSpeedRates(next.speedRates);
+    setSpeedResults([]);
+    setCaptures([]);
+    setFit(null);
+    setVerdict(null);
+    setCreep(null);
+    setRangeSteps([]);
+    setRangeResult(null);
+    setNoiseFloor(null);
+    setZeroCounts(null);
+    setReturnCounts(null);
+    setError(null);
+  }, []);
 
   const connectH36 = useCallback(async () => {
     if (!("serial" in navigator)) {
@@ -318,8 +351,8 @@ export function BenchProvider({ children }: { children: ReactNode }) {
       session.onLog = pushLog;
       h36Ref.current = session;
       sourceRef.current = session;
-      setMode("h36");
-      await session.connect(port);
+      setMode("mcu");
+      await session.connect(port, frontRef.current, gainRef.current);
       setMcuLine(
         `${session.mcu || "MCU"} ${session.version} · ${(session.clockHz / 1e6).toFixed(1)} MHz`,
       );
@@ -327,7 +360,7 @@ export function BenchProvider({ children }: { children: ReactNode }) {
       setScaleSource("none");
       setCountsPerGram(null);
       setTare(null);
-      pushLog("H36 is configured for the Plimsoll mini ADS1220. Start the stream when the cell is still.");
+      pushLog(`${frontRef.current.label} is configured. Start the stream when the cell is still.`);
     } catch (err) {
       if (err instanceof DOMException && (err.name === "NotFoundError" || err.name === "AbortError")) {
         setPhase("idle");
@@ -373,7 +406,7 @@ export function BenchProvider({ children }: { children: ReactNode }) {
 
   const ensureStreaming = useCallback(async () => {
     const source = sourceRef.current;
-    if (!source) throw new Error("Connect the H36 or start the simulator first.");
+    if (!source) throw new Error("Connect a board or start the simulator first.");
     if (phase !== "streaming") {
       attach(source);
       await source.start(opts());
@@ -410,21 +443,33 @@ export function BenchProvider({ children }: { children: ReactNode }) {
     abortRef.current = false;
     setPhase("busy");
     setError(null);
-    let chosen = 1;
+    const sensor = frontRef.current.sensor;
+    const hardwareHx = source.kind === "mcu" && sensor === "hx717";
+    const gains = hardwareHx ? [gainRef.current] : sensor === "hx717" ? [64, 128] : frontRef.current.gains;
+    const probeRate = sensor === "hx717" ? frontRef.current.defaultRate : 90;
+    let chosen = gains[0];
     try {
       attach(source);
-      for (const candidate of GAINS) {
+      for (const candidate of gains) {
         if (abortRef.current) return;
         setBusyLabel(`Trying gain ${candidate}`);
         setGainState(candidate);
         gainRef.current = candidate;
-        await source.start({ gain: candidate, sampleRate: 90, vref: vrefRef.current });
+        await source.start({ gain: candidate, sampleRate: probeRate, vref: vrefRef.current });
         const { samples } = await collectSamples(source.subscribe.bind(source), 0.45, undefined, () => abortRef.current);
         const sign = invertRef.current ? -1 : 1;
         const xs = samples.map((s) => s.counts * sign);
         const level = Math.abs(xs.reduce((a, b) => a + b, 0) / Math.max(1, xs.length));
         const sat = xs.some((c) => isSaturated(Math.abs(c) === c ? c : -c) || isSaturated(c));
-        if (sat || level > 0.22 * 8388608) break;
+        if (sat || level > 0.22 * 8388608) {
+          if (hardwareHx) {
+            const other = candidate === 128 ? 64 : 128;
+            throw new Error(
+              `Gain ${candidate} is against the rail. Disconnect, choose ${other}, and connect again. HX717 gain is fixed until the board is configured again.`,
+            );
+          }
+          break;
+        }
         chosen = candidate;
       }
       setGainState(chosen);
@@ -443,7 +488,7 @@ export function BenchProvider({ children }: { children: ReactNode }) {
   const runSpeed = useCallback(async () => {
     const source = sourceRef.current;
     if (!source) {
-      setError("Connect the H36 or start the simulator first.");
+      setError("Connect a board or start the simulator first.");
       return;
     }
     if (!speedRates.length) {
@@ -468,7 +513,7 @@ export function BenchProvider({ children }: { children: ReactNode }) {
           (fraction) => setBusyLabel(`${rate} Hz · ${(fraction * speedSeconds).toFixed(1)} s`),
           () => abortRef.current,
         );
-        results.push(analyzeRate(samples, rate, durationSec, source.gaps, source.overflows));
+        results.push(analyzeRate(samples, rate, durationSec, source.gaps, source.overflows, source.errors));
         setSpeedResults([...results]);
       }
       if (!abortRef.current) {
@@ -716,9 +761,12 @@ export function BenchProvider({ children }: { children: ReactNode }) {
   const rate = rollingRate(samples);
   const overflows = sourceRef.current?.overflows ?? 0;
   const gaps = sourceRef.current?.gaps ?? 0;
+  const linkErrors = sourceRef.current?.errors ?? 0;
 
   const api: BenchApi = {
     mode,
+    front,
+    setFront,
     phase,
     error,
     log,
@@ -760,10 +808,11 @@ export function BenchProvider({ children }: { children: ReactNode }) {
     noiseGrams,
     overflows,
     gaps,
+    linkErrors,
     saturatedNow: samples.slice(-30).some((s) => isSaturated(s.counts)),
     busyLabel,
     connectSim,
-    connectH36,
+    connectBoard: connectH36,
     disconnect,
     startStream,
     stopStream,

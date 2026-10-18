@@ -22,8 +22,8 @@ import { Separator } from "@/components/ui/separator";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { klipperSnippet } from "@/lib/klipper/session";
-import { CELL, GAINS, NORMAL_RATES, TURBO_RATES, estimateScale } from "@/lib/model";
+import { printerSnippet } from "@/lib/frontends";
+import { CELL, NORMAL_RATES, TURBO_RATES, estimateScale } from "@/lib/model";
 import { GOALS } from "@/lib/analyze";
 
 const MASS_PRESETS = [20, 50, 100, 200, 500, 1000];
@@ -48,7 +48,7 @@ function BenchShell() {
             </p>
             <h1 className="mt-1 text-2xl font-semibold tracking-tight sm:text-3xl">K2 loadcell bench</h1>
             <p className="mt-1 max-w-xl text-sm text-[#5c564c]">
-              Stream the Plimsoll mini ADS1220 through an H36 Combo V2 and measure rate, accuracy, and range before it goes on a printer.
+              Stream a Plimsoll ADC over Klipper USB and measure rate, accuracy, and range before the cell goes on a printer.
             </p>
           </div>
           <ConnectBar />
@@ -100,9 +100,14 @@ function ConnectBar() {
   return (
     <div className="flex flex-col items-stretch gap-2 sm:items-end">
       <div className="flex flex-wrap gap-2">
-        {bench.mode !== "h36" && (
-          <Button onClick={() => void bench.connectH36()} disabled={bench.phase === "connecting" || bench.phase === "busy"}>
-            {bench.phase === "connecting" ? "Connecting…" : "Connect H36"}
+        <NativeSelect className="w-52 sm:w-56" value={bench.front.id} onChange={bench.setFront} disabled={bench.mode !== "idle" || bench.phase === "busy"}>
+          <option value="h36-ads1220">H36 + mini ADS1220</option>
+          <option value="h36-hx717">H36 + mini HX717</option>
+          <option value="alpha-hx717">Alpha USB + HX717</option>
+        </NativeSelect>
+        {bench.mode !== "mcu" && (
+          <Button onClick={() => void bench.connectBoard()} disabled={bench.phase === "connecting" || bench.phase === "busy"}>
+            {bench.phase === "connecting" ? "Connecting…" : "Connect"}
           </Button>
         )}
         {bench.mode !== "sim" && (
@@ -129,11 +134,11 @@ function StatusBadge() {
   const bench = useBench();
   if (bench.mode === "idle") return <Badge variant="outline">No source</Badge>;
   if (bench.phase === "streaming") {
-    return <Badge>{bench.mode === "sim" ? "Simulator streaming" : "H36 streaming"}</Badge>;
+    return <Badge>{bench.mode === "sim" ? "Simulator streaming" : `${bench.front.short} streaming`}</Badge>;
   }
   if (bench.phase === "busy") return <Badge variant="secondary">Working</Badge>;
   if (bench.phase === "connecting") return <Badge variant="secondary">Opening USB</Badge>;
-  return <Badge variant="outline">{bench.mode === "sim" ? "Simulator idle" : "H36 idle"}</Badge>;
+  return <Badge variant="outline">{bench.mode === "sim" ? "Simulator idle" : `${bench.front.short} idle`}</Badge>;
 }
 
 function LivePanel() {
@@ -185,6 +190,7 @@ function LivePanel() {
               <Stat label="Noise rms" value={bench.noiseGrams !== null ? `${bench.noiseGrams.toFixed(2)} g` : bench.noiseCounts !== null ? `${bench.noiseCounts.toFixed(0)} ct` : "—"} />
               <Stat label="Overflows" value={String(bench.overflows)} />
               <Stat label="USB gaps" value={String(bench.gaps)} />
+              {bench.front.sensor === "hx717" && <Stat label="Chip errors" value={String(bench.linkErrors)} />}
             </div>
           </div>
           {bench.saturatedNow && (
@@ -201,7 +207,7 @@ function LivePanel() {
           {bench.mode === "sim" && <LoadSlider />}
           {bench.mode === "idle" && (
             <p className="text-sm text-[#5c564c]">
-              Plug the H36 into this computer with Klipper flashed for USB, or open the simulator to walk the three tests before the board is on the bench.
+              Pick the board above, then connect it with Klipper flashed for USB. The simulator walks the same three tests before the board is on the bench.
             </p>
           )}
         </CardContent>
@@ -209,43 +215,59 @@ function LivePanel() {
       <div className="space-y-4">
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">ADS1220</CardTitle>
-            <CardDescription>Restart the stream after changing these. Auto gain walks 1 to 128 and stops before the offset hits the rail.</CardDescription>
+            <CardTitle className="text-base">{bench.front.sensor === "hx717" ? "HX717" : "ADS1220"}</CardTitle>
+            <CardDescription>{bench.front.settingsNote}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
             <Field label="Gain">
               <NativeSelect value={String(bench.gain)} onChange={(v) => bench.setGain(Number(v))} disabled={bench.phase === "busy"}>
-                {GAINS.map((g) => (
+                {bench.front.gains.map((g) => (
                   <option key={g} value={g}>
-                    {g}
+                    {bench.front.sensor === "hx717" ? (g === 128 ? "128 (A-128)" : "64 (A-64)") : g}
                   </option>
                 ))}
               </NativeSelect>
             </Field>
             <Field label="Sample rate">
               <NativeSelect value={String(bench.sampleRate)} onChange={(v) => bench.setSampleRate(Number(v))} disabled={bench.phase === "busy"}>
-                <optgroup label="Normal">
-                  {NORMAL_RATES.map((r) => (
+                {bench.front.sensor === "hx717" ? (
+                  bench.front.rates.map((r) => (
                     <option key={r} value={r}>
-                      {r} Hz
+                      {r} Hz jumper
                     </option>
-                  ))}
-                </optgroup>
-                <optgroup label="Turbo">
-                  {TURBO_RATES.map((r) => (
-                    <option key={`t${r}`} value={r}>
-                      {r} Hz turbo
-                    </option>
-                  ))}
-                </optgroup>
+                  ))
+                ) : (
+                  <>
+                    <optgroup label="Normal">
+                      {NORMAL_RATES.map((r) => (
+                        <option key={r} value={r}>
+                          {r} Hz
+                        </option>
+                      ))}
+                    </optgroup>
+                    <optgroup label="Turbo">
+                      {TURBO_RATES.map((r) => (
+                        <option key={`t${r}`} value={r}>
+                          {r} Hz turbo
+                        </option>
+                      ))}
+                    </optgroup>
+                  </>
+                )}
               </NativeSelect>
             </Field>
+            {bench.front.sensor === "hx717" ? (
+              <p className="text-xs leading-relaxed text-[#5c564c]">
+                The HX717 is ratiometric. Excitation is the reference, so supply drift cancels. Channel B is not the bridge and is not offered here.
+              </p>
+            ) : (
             <Field label="Reference">
               <NativeSelect value={bench.vref} onChange={(v) => bench.setVref(v as "internal" | "analog_supply")} disabled={bench.phase === "busy"}>
                 <option value="internal">Internal 2.048 V</option>
                 <option value="analog_supply">Analog supply, ratiometric</option>
               </NativeSelect>
             </Field>
+            )}
             <div className="flex items-center justify-between gap-3 pt-1">
               <Label htmlFor="invert">Invert sign</Label>
               <Switch id="invert" checked={bench.invert} onCheckedChange={(checked) => bench.setInvert(checked)} />
@@ -314,14 +336,17 @@ function LoadSlider() {
 
 function SpeedPanel() {
   const bench = useBench();
-  const rates = [...NORMAL_RATES, ...TURBO_RATES.filter((r) => !NORMAL_RATES.includes(r))];
+  const rates =
+    bench.front.sensor === "hx717"
+      ? bench.front.rates
+      : [...NORMAL_RATES, ...TURBO_RATES.filter((r) => !NORMAL_RATES.includes(r))];
   return (
     <div className="space-y-4">
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Polling speed</CardTitle>
           <CardDescription>
-            The H36 does not poll the bridge one sample at a time. Klipper watches DRDY and ships samples in bulk. This sweep asks the ADS1220 for each rate and counts what actually arrives. A pass is within {(GOALS.rateTolerance * 100).toFixed(0)}% of the setting, with no overflows, no missing USB blocks, and more than one distinct count.
+            {bench.front.speedNote} A pass is within {(GOALS.rateTolerance * 100).toFixed(0)}% of the setting, with no overflows, no missing USB blocks, and more than one distinct count.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -356,7 +381,7 @@ function SpeedPanel() {
       <Card>
         <CardContent className="pt-4">
           {bench.speedResults.length === 0 ? (
-            <p className="text-sm text-[#5c564c]">No sweep yet. 175 Hz is the floor for probing. 330 Hz and up is the interesting region for a force trace.</p>
+            <p className="text-sm text-[#5c564c]">{bench.front.speedEmpty}</p>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm">
@@ -586,7 +611,8 @@ function RangePanel() {
 
 function BuildPanel() {
   const bench = useBench();
-  const snippet = klipperSnippet({
+  const snippet = printerSnippet({
+    front: bench.front,
     gain: bench.gain,
     sampleRate: bench.sampleRate,
     vref: bench.vref,
@@ -647,11 +673,9 @@ function BuildPanel() {
         </CardHeader>
         <CardContent className="space-y-3 text-sm text-[#3c3832]">
           <ol className="list-decimal space-y-2 pl-5">
-            <li>Flash the H36 USB build: STM32G431, no bootloader, 12 MHz crystal, USB on PA11/PA12, startup pin PA2.</li>
-            <li>Seat the Plimsoll mini ADS1220 on the 2×6 header. Software SPI uses PA14 CS, PA1 DRDY, PB7 SCLK, PB13 MOSI, PA15 MISO.</li>
-            <li>Copy the config below into the printer. Run LOAD_CELL_DIAGNOSTIC, then LOAD_CELL_CALIBRATE.</li>
-            <li>Prove taps with LOAD_CELL_TEST_TAP before a real probe. Keep the nozzle near 140°C so ooze is not the contact.</li>
-            <li>Pressure advance is a later experiment. If the range test says the cell is a force-trace candidate, log nozzle force during an extrusion move. Mainline Klipper does not compute pressure advance from a load cell by itself.</li>
+            {bench.front.steps.map((step) => (
+              <li key={step}>{step}</li>
+            ))}
           </ol>
           <pre className="overflow-auto rounded-lg bg-[#1c1915] p-3 font-mono text-[11px] leading-relaxed text-[#f3efe6]">{snippet}</pre>
           <Button
@@ -759,18 +783,20 @@ function NativeSelect({
   onChange,
   disabled,
   children,
+  className,
 }: {
   value: string;
   onChange: (value: string) => void;
   disabled?: boolean;
   children: ReactNode;
+  className?: string;
 }) {
   return (
     <select
       value={value}
       disabled={disabled}
       onChange={(event) => onChange(event.target.value)}
-      className="h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50"
+      className={`h-8 ${className ?? "w-full"} rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50`}
     >
       {children}
     </select>

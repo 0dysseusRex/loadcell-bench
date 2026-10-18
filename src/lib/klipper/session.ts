@@ -9,7 +9,8 @@ import {
   type ParamValue,
 } from "./codec";
 import { adsImage, decodeSamples, pulseTicks, restTicks } from "../ads1220";
-import { H36_PINS } from "../model";
+import { frontById, type FrontEnd } from "../frontends";
+import { hx717ConfigLines, hx717GainChannel, hx717RestTicks, isHxErrorSample } from "../hx717";
 import type { Sample, StreamOptions } from "../analyze";
 
 type Listener = (batch: Sample[]) => void;
@@ -24,11 +25,11 @@ type Waiter = {
 const SPI_HZ = 256000;
 
 /**
- * Talks to an H36 Combo V2 that is running Klipper, and pulls ADS1220 bulk
- * samples the same way klippy does. The browser owns the USB port via Web Serial.
+ * Talks to a Klipper USB MCU (H36 Combo V2 or a Plimsoll alpha board) and
+ * pulls bulk samples the same way klippy does. The browser owns the port.
  */
 export class H36Session {
-  readonly kind = "h36" as const;
+  readonly kind = "mcu" as const;
   private parser = new MessageParser();
   private port: SerialPort | null = null;
   private writer: WritableStreamDefaultWriter<Uint8Array> | null = null;
@@ -47,8 +48,14 @@ export class H36Session {
   private statusGen = 0;
   private currentSps = 330;
   private closed = false;
+  private front: FrontEnd = frontById("h36-ads1220");
+  /** HX717 gain requested at connect, 64 or 128. */
+  private hxGain = 128;
+  /** HX717 gain_channel actually sent in config_hx71x. */
+  private configuredGain = 1;
   overflows = 0;
   gaps = 0;
+  errors = 0;
   onLog: ((line: string) => void) | null = null;
   version = "";
   mcu = "";
@@ -60,7 +67,9 @@ export class H36Session {
     return () => this.listeners.delete(cb);
   }
 
-  async connect(port: SerialPort): Promise<void> {
+  async connect(port: SerialPort, front: FrontEnd, gain: number): Promise<void> {
+    this.front = front;
+    this.hxGain = gain;
     this.port = port;
     this.closed = false;
     this.sendSeq = 1n;
@@ -76,7 +85,7 @@ export class H36Session {
     this.mcu = this.parser.config.MCU ?? "";
     this.clockHz = Number(this.parser.config.CLOCK_FREQ ?? "0");
     if (!this.clockHz) throw new Error("The firmware did not report CLOCK_FREQ");
-    this.requireAds();
+    this.requireSensor();
     this.log(`${this.mcu || "MCU"} ${this.version || ""} at ${(this.clockHz / 1e6).toFixed(2)} MHz`.trim());
     await this.configure();
   }
@@ -106,15 +115,20 @@ export class H36Session {
   }
 
   async start(opts: StreamOptions): Promise<void> {
-    if (!this.clockHz) throw new Error("Connect the H36 before starting the stream");
+    if (!this.clockHz) throw new Error(`Connect the ${this.front.board} before starting the stream`);
     this.currentSps = opts.sampleRate;
     this.sampleIndex = 0;
     this.lastBulkSeq = null;
     this.lastOverflow = null;
     this.overflows = 0;
     this.gaps = 0;
+    this.errors = 0;
     this.statusGen++;
     if (this.statusTimer) clearTimeout(this.statusTimer);
+    if (this.front.sensor === "hx717") {
+      await this.startHx(opts);
+      return;
+    }
     const image = adsImage({
       gain: opts.gain,
       sampleRate: opts.sampleRate,
@@ -139,7 +153,7 @@ export class H36Session {
     await this.spiSend(image.start);
     const ticks = restTicks(this.clockHz, opts.sampleRate);
     this.streaming = true;
-    await this.transact("query_ads1220", { oid: 1, rest_ticks: ticks }, null, 1200);
+    await this.transact(this.queryCommand(), { oid: this.sensorOid(), rest_ticks: ticks }, null, 1200);
     this.log("Streaming");
     this.scheduleStatus();
   }
@@ -151,29 +165,71 @@ export class H36Session {
     this.statusTimer = null;
     if (!this.port || this.closed) return;
     try {
-      await this.transact("query_ads1220", { oid: 1, rest_ticks: 0 }, null, 800);
+      await this.transact(this.queryCommand(), { oid: this.sensorOid(), rest_ticks: 0 }, null, 800);
     } catch {
       /* the link may already be down */
     }
   }
 
-  private requireAds() {
-    for (const name of ["config_ads1220", "query_ads1220", "spi_transfer", "spi_send"]) {
+  private requireSensor() {
+    const names =
+      this.front.sensor === "hx717"
+        ? ["config_hx71x", "query_hx71x", "query_hx71x_status"]
+        : ["config_ads1220", "query_ads1220", "spi_transfer", "spi_send"];
+    for (const name of names) {
       if (!this.parser.hasCommand(name)) {
-        throw new Error(
-          `This firmware has no ${name}. Flash current Klipper for the STM32G431 with USB on PA11/PA12. ADS1220 support is included unless it was turned off.`,
-        );
+        const flash =
+          this.front.id === "alpha-hx717"
+            ? "Flash Klipper for the STM32F072: internal clock, USB on PA11/PA12, no bootloader. HX717 support is on unless the build turned it off to save space."
+            : "Flash current Klipper for the STM32G431 with USB on PA11/PA12. The sensor extras are included unless they were turned off.";
+        throw new Error(`This firmware has no ${name}. ${flash}`);
       }
     }
   }
 
+  private queryCommand() {
+    return this.front.sensor === "hx717" ? "query_hx71x" : "query_ads1220";
+  }
+
+  private statusCommand() {
+    return this.front.sensor === "hx717" ? "query_hx71x_status" : "query_ads1220_status";
+  }
+
+  private sensorOid() {
+    return this.front.sensor === "hx717" ? 0 : 1;
+  }
+
+  private async startHx(opts: StreamOptions) {
+    const channel = hx717GainChannel(opts.gain);
+    if (channel !== this.configuredGain) {
+      const wanted = opts.gain;
+      throw new Error(
+        `This link was configured for the other HX717 gain. Disconnect, leave the gain at ${wanted}, and connect again. Gain is part of the Klipper config, not a register.`,
+      );
+    }
+    const ticks = hx717RestTicks(this.clockHz, opts.sampleRate);
+    this.streaming = true;
+    this.log(`Watching the HX717 at ${opts.sampleRate} Hz. The chip rate is the solder jumper.`);
+    await this.transact(this.queryCommand(), { oid: 0, rest_ticks: ticks }, null, 1200);
+    this.log("Streaming");
+    this.scheduleStatus();
+  }
+
   private async configure() {
-    const pins = H36_PINS;
+    if (this.front.sensor === "hx717") {
+      await this.configureHx();
+      return;
+    }
+    const { cs, drdy, sclk, mosi, miso } = this.front;
+    if (!cs || !drdy || !mosi || !miso) {
+      throw new Error("The ADS1220 front end is missing its SPI pins.");
+    }
+    const pins = { cs, drdy, sclk, mosi, miso };
     for (const pin of Object.values(pins)) {
       const known = this.parser.enumerations.pin ?? {};
       if (!known[pin]) {
         throw new Error(
-          `Pin ${pin} is not available on this firmware. The Plimsoll mini board on an H36 Combo V2 needs PA14, PA1, PB7, PB13, and PA15.`,
+          `Pin ${pin} is not available on this firmware. The Plimsoll mini ADS1220 on an H36 Combo V2 needs PA14, PA1, PB7, PB13, and PA15.`,
         );
       }
     }
@@ -218,12 +274,12 @@ export class H36Session {
     if (!current) throw new Error("The board did not answer get_config");
     if (current.params.is_shutdown) {
       await this.reboot();
-      throw new Error("The H36 was in shutdown and has been reset. Connect it again.");
+      throw new Error(`The ${this.front.board} was in shutdown and has been reset. Connect it again.`);
     }
     if (current.params.is_config && current.params.crc !== crc) {
       this.log("Config CRC differs from a previous host. Resetting the MCU.");
       await this.reboot();
-      throw new Error("The H36 was configured by another host. It has been reset. Connect it again.");
+      throw new Error(`The ${this.front.board} was configured by another host. It has been reset. Connect it again.`);
     }
     if (!current.params.is_config) {
       this.log("Sending a bench config: software SPI plus one ADS1220.");
@@ -238,6 +294,47 @@ export class H36Session {
       await this.transact(
         "config_ads1220",
         { oid: 1, spi_oid: 0, data_ready_pin: pins.drdy },
+        null,
+        1200,
+      );
+      await this.transact("finalize_config", { crc }, null, 1200);
+    } else {
+      this.log("MCU config matches this bench. Leaving it in place.");
+    }
+  }
+
+  private async configureHx() {
+    const front = this.front;
+    const known = this.parser.enumerations.pin ?? {};
+    for (const pin of [front.dout, front.sclk]) {
+      if (!known[pin]) {
+        throw new Error(
+          `Pin ${pin} is not available on this firmware. ${front.label} uses SCLK ${front.sclk} and DOUT ${front.dout}.`,
+        );
+      }
+    }
+    this.pinsOk = true;
+    const channel = hx717GainChannel(this.hxGain);
+    this.configuredGain = channel;
+    const lines = hx717ConfigLines({ dout: front.dout, sclk: front.sclk }, this.hxGain);
+    const crc = configCrc(lines);
+    const current = await this.transact("get_config", {}, "config", 1200);
+    if (!current) throw new Error("The board did not answer get_config");
+    if (current.params.is_shutdown) {
+      await this.reboot();
+      throw new Error(`The ${front.board} was in shutdown and has been reset. Connect it again.`);
+    }
+    if (current.params.is_config && current.params.crc !== crc) {
+      this.log("Config CRC differs from a previous host. Resetting the MCU.");
+      await this.reboot();
+      throw new Error(`The ${front.board} was configured by another host. It has been reset. Connect it again.`);
+    }
+    if (!current.params.is_config) {
+      this.log(`Sending a bench config: HX717 on SCLK ${front.sclk}, DOUT ${front.dout}, gain channel ${channel}.`);
+      await this.transact("allocate_oids", { count: 1 }, null, 1200);
+      await this.transact(
+        "config_hx71x",
+        { oid: 0, gain_channel: channel, dout_pin: front.dout, sclk_pin: front.sclk },
         null,
         1200,
       );
@@ -268,7 +365,9 @@ export class H36Session {
     }
     if (!offset) {
       throw new Error(
-        "The board did not send a Klipper dictionary. Flash Klipper for the STM32G431: USB on PA11/PA12, 12 MHz crystal, no bootloader, PA2 set at startup.",
+        this.front.id === "alpha-hx717"
+          ? "The board did not send a Klipper dictionary. Flash the alpha board: STM32F072, internal clock, USB on PA11/PA12, no bootloader."
+          : "The board did not send a Klipper dictionary. Flash Klipper for the STM32G431: USB on PA11/PA12, 12 MHz crystal, no bootloader, PA2 set at startup.",
       );
     }
     const packed = new Uint8Array(offset);
@@ -281,7 +380,7 @@ export class H36Session {
     try {
       text = new TextDecoder().decode(unzlibSync(packed));
     } catch {
-      throw new Error("The identify data was not a Klipper dictionary. This port may not be the H36.");
+      throw new Error(`The identify data was not a Klipper dictionary. This port may not be the ${this.front.board}.`);
     }
     this.parser.loadDictionary(text);
   }
@@ -310,7 +409,7 @@ export class H36Session {
     const run = async () => {
       if (gen !== this.statusGen || !this.streaming || this.closed) return;
       try {
-        const msg = await this.transact("query_ads1220_status", { oid: 1 }, "sensor_bulk_status", 800);
+        const msg = await this.transact(this.statusCommand(), { oid: this.sensorOid() }, "sensor_bulk_status", 800);
         const ov = msg?.params.possible_overflows;
         if (typeof ov === "number") {
           if (this.lastOverflow !== null) {
@@ -361,7 +460,7 @@ export class H36Session {
       const result = await this.wait(seq, response, slice);
       if (result !== "timeout") return result;
       if (Date.now() >= deadline) {
-        throw new Error(`No response to ${name}. The USB link to the H36 stalled.`);
+        throw new Error(`No response to ${name}. The USB link to the ${this.front.board} stalled.`);
       }
       attempt++;
       pause = Math.min(pause * 2, 400);
@@ -468,7 +567,15 @@ export class H36Session {
       if (diff !== 1 && diff < 0x8000) this.gaps += diff - 1;
     }
     this.lastBulkSeq = seq;
-    const counts = decodeSamples(data);
+    let counts = decodeSamples(data);
+    if (this.front.sensor === "hx717") {
+      const clean: number[] = [];
+      for (const sample of counts) {
+        if (isHxErrorSample(sample)) this.errors++;
+        else clean.push(sample);
+      }
+      counts = clean;
+    }
     if (!counts.length) return;
     const hostT = now();
     const batch: Sample[] = [];
@@ -514,44 +621,4 @@ function delay(ms: number) {
 
 function now() {
   return performance.now() / 1000;
-}
-
-export function klipperSnippet(input: {
-  gain: number;
-  sampleRate: number;
-  vref: "internal" | "analog_supply";
-  countsPerGram: number | null;
-  tareCounts: number | null;
-}): string {
-  const cpg = input.countsPerGram === null ? "# counts_per_gram: fill in after the accuracy test" : `counts_per_gram: ${input.countsPerGram.toFixed(4)}`;
-  const tare =
-    input.tareCounts === null
-      ? "# reference_tare_counts: fill in after a tare on the printer"
-      : `reference_tare_counts: ${Math.round(input.tareCounts)}`;
-  return `# K2 loadcell on an FYSETC H36 Combo V2 with a Plimsoll mini ADS1220.
-# Bench gain ${input.gain}, ${input.sampleRate} Hz, ${input.vref} reference.
-# Flash the toolboard USB build (STM32G431, 12 MHz, PA11/PA12, startup pin PA2)
-# before pointing Klipper at it. This host and Klipper cannot share the port.
-
-[mcu toolhead]
-# serial: /dev/serial/by-id/usb-Klipper_stm32g431xx_XXXXXXXX-if00
-
-[load_cell k2]
-sensor_type: ads1220
-cs_pin: toolhead:PA14
-data_ready_pin: toolhead:PA1
-spi_software_sclk_pin: toolhead:PB7
-spi_software_mosi_pin: toolhead:PB13
-spi_software_miso_pin: toolhead:PA15
-spi_speed: ${SPI_HZ}
-gain: ${input.gain}
-sample_rate: ${input.sampleRate}
-vref: ${input.vref}
-${cpg}
-${tare}
-
-# When the bench numbers look right, the same sensor can become a
-# [load_cell_probe] on the printer. Keep the nozzle under ~140°C while
-# probing so filament ooze does not become the contact.
-`;
 }

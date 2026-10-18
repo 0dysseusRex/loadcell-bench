@@ -100,6 +100,7 @@ export function analyzeRate(
   durationSec: number,
   gaps: number,
   overflows: number,
+  errors = 0,
 ): SpeedResult {
   const measuredHz = durationSec > 0 ? samples.length / durationSec : 0;
   let saturated = 0;
@@ -120,6 +121,11 @@ export function analyzeRate(
   }
   if (overflows > 0) notes.push(`${overflows} MCU buffer overflows. The host is not keeping up, or DRDY is stuck.`);
   if (gaps > 0) notes.push(`${gaps} missing bulk-data blocks on the USB link.`);
+  if (errors > 0) {
+    notes.push(
+      `${errors} HX717 reads failed. The bit-bang transfer desynced or ran long, which is what the alpha board's internal clock is known for.`,
+    );
+  }
   if (saturated > samples.length * 0.01) {
     notes.push("The ADC is against the rail. Lower the gain before trusting this rate.");
   }
@@ -131,6 +137,7 @@ export function analyzeRate(
     Math.abs(ratio - 1) <= GOALS.rateTolerance &&
     overflows === 0 &&
     gaps === 0 &&
+    errors === 0 &&
     saturated <= samples.length * 0.01 &&
     uniq.size > 1;
   return {
