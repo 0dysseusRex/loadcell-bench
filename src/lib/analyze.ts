@@ -58,14 +58,27 @@ export function rollingRate(samples: Sample[]): number | null {
   if (samples.length < 20) return null;
   const newest = samples[samples.length - 1];
   const target = newest.hostT - 2;
-  let older = samples[0];
-  for (const sample of samples) {
-    if (sample.hostT >= target) break;
+  let older = newest;
+  for (let i = samples.length - 1; i >= 0; i--) {
+    const sample = samples[i];
+    // A stream restart sets the sample index back to zero.
+    if (sample.index > newest.index) break;
+    if (sample.hostT < target) break;
     older = sample;
   }
   const dt = newest.hostT - older.hostT;
   if (dt < 0.5) return null;
   return (newest.index - older.index) / dt;
+}
+
+/** Second-half mean minus first-half mean. A step that is still arriving shows up here. */
+export function windowDrift(samples: Sample[], seconds = 1.2): { drift: number; stdev: number; n: number } | null {
+  const window = windowTail(samples, seconds);
+  if (window.length < 16) return null;
+  const mid = Math.floor(window.length / 2);
+  const first = mean(window.slice(0, mid).map((s) => s.counts));
+  const second = mean(window.slice(mid).map((s) => s.counts));
+  return { drift: second - first, stdev: stdev(window.map((s) => s.counts)), n: window.length };
 }
 
 export type SpeedResult = {

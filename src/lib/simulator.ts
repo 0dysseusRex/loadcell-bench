@@ -34,7 +34,10 @@ export class SimulatorSource {
   };
   private grams = 0;
   private appliedAt = 0;
+  /** Mechanical counts at the moment the load last changed. */
   private creepFrom = 0;
+  /** Adhesive creep, in counts, already present when the load last changed. */
+  private creepCarry = 0;
   private rng = mulberry32(0x4b32);
   overflows = 0;
   gaps = 0;
@@ -51,6 +54,12 @@ export class SimulatorSource {
     this.origin = now();
     this.nextAt = this.origin;
     this.rng = mulberry32(0x4b32 ^ (opts.gain * 1000 + opts.sampleRate));
+    // First start sits on the offset. A ramp up from zero counts would look like a load.
+    if (this.appliedAt === 0) {
+      this.creepFrom = this.elasticCounts(this.grams);
+      this.creepCarry = this.creepTarget(this.grams);
+      this.appliedAt = now();
+    }
     const periodMs = 1000 / opts.sampleRate;
     this.timer = setInterval(() => this.tick(periodMs), Math.min(50, periodMs));
   }
@@ -65,8 +74,13 @@ export class SimulatorSource {
 
   setLoad(grams: number) {
     if (grams === this.grams) return;
-    this.creepFrom = this.elasticCounts(this.grams);
-    this.appliedAt = now();
+    const t = now();
+    const age = Math.max(0, t - this.appliedAt);
+    const previous = this.elasticCounts(this.grams);
+    this.creepFrom = this.creepFrom + (previous - this.creepFrom) * (1 - Math.exp(-age / 0.08));
+    const previousCreep = this.creepTarget(this.grams);
+    this.creepCarry = this.creepCarry + (previousCreep - this.creepCarry) * (1 - Math.exp(-age / 18));
+    this.appliedAt = t;
     this.grams = grams;
   }
 
@@ -80,10 +94,16 @@ export class SimulatorSource {
 
   /** Synchronous samples for tests. Load is constant and already settled. */
   generate(seconds: number, grams: number): Sample[] {
-    const prev = this.grams;
+    const prev = {
+      grams: this.grams,
+      appliedAt: this.appliedAt,
+      creepFrom: this.creepFrom,
+      creepCarry: this.creepCarry,
+    };
     this.grams = grams;
     this.appliedAt = -1000;
     this.creepFrom = this.elasticCounts(grams);
+    this.creepCarry = this.creepTarget(grams);
     const sps = this.opts.sampleRate;
     const n = Math.round(seconds * sps);
     const out: Sample[] = [];
@@ -97,7 +117,10 @@ export class SimulatorSource {
         counts: this.countsAt(t, i),
       });
     }
-    this.grams = prev;
+    this.grams = prev.grams;
+    this.appliedAt = prev.appliedAt;
+    this.creepFrom = prev.creepFrom;
+    this.creepCarry = prev.creepCarry;
     return out;
   }
 
@@ -132,12 +155,22 @@ export class SimulatorSource {
     return ratio;
   }
 
-  private bridgeRatio(grams: number, countsPerGram: number): number {
-    const offset =
+  private offsetCounts(): number {
+    return (
       (this.opts.offsetRatio ?? 0.0035) *
       (this.opts.vref === "analog_supply" ? 1 : CELL.assumedExcitationV / CELL.internalRefV) *
       this.opts.gain *
-      8388608;
+      8388608
+    );
+  }
+
+  /** Creep is a fraction of the load signal. The bridge offset is not a load. */
+  private creepTarget(grams: number): number {
+    return (this.elasticCounts(grams) - this.offsetCounts()) * 0.003;
+  }
+
+  private bridgeRatio(grams: number, countsPerGram: number): number {
+    const offset = this.offsetCounts();
     // A small stiffening at high load, about 0.4% at 1 kg.
     const stiff = 1 - 0.000004 * grams;
     return offset + countsPerGram * grams * stiff;
@@ -146,9 +179,11 @@ export class SimulatorSource {
   private countsAt(t: number, index: number): number {
     const target = this.elasticCounts(this.grams);
     const age = Math.max(0, t - this.appliedAt);
-    // Loctite 401 creep: a few tenths of a percent arriving over ~20 s.
-    const settled = this.creepFrom + (target - this.creepFrom) * (1 - Math.exp(-age / 4));
-    const creep = target * 0.003 * (1 - Math.exp(-age / 18));
+    // The aluminum step is quick. Loctite 401 then creeps a few tenths of a
+    // percent of the load, over ~20 s. Creep does not scale with the offset.
+    const settled = this.creepFrom + (target - this.creepFrom) * (1 - Math.exp(-age / 0.08));
+    const creepTarget = this.creepTarget(this.grams);
+    const creep = this.creepCarry + (creepTarget - this.creepCarry) * (1 - Math.exp(-age / 18));
     const noise = gauss(this.rng) * this.noiseCounts();
     const hum = Math.sin(2 * Math.PI * 60 * t + (index % 7)) * this.noiseCounts() * 0.25;
     let counts = settled + creep + noise + hum;

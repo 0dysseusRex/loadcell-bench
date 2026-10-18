@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { analyzeRate, fitLine, hysteresisOf, judgeAccuracy, analyzeRange } from "./analyze.ts";
+import { analyzeRate, fitLine, hysteresisOf, judgeAccuracy, analyzeRange, rollingRate, windowDrift } from "./analyze.ts";
 import { SimulatorSource } from "./simulator.ts";
 import { estimateScale, CELL } from "./model.ts";
 import type { Sample } from "./analyze.ts";
@@ -69,6 +69,56 @@ test("simulator scale is near the sketch and the rate is exact", () => {
     const hyst = hysteresisOf(up, down, fit.countsPerGram);
     assert.ok(hyst !== null && Math.abs(hyst - 0.2) < 0.05);
   });
+});
+
+test("a load step settles on the sketch and creep ignores the bridge offset", async () => {
+  const sim = new SimulatorSource();
+  const opts = {
+    gain: 64,
+    sampleRate: 330,
+    vref: "internal" as const,
+    neckWidthMm: CELL.defaultNeckWidthMm,
+    neckLengthMm: CELL.defaultNeckLengthMm,
+    neckCount: CELL.defaultNeckCount,
+  };
+  const sketch = estimateScale(opts).countsPerGram;
+  await sim.start(opts);
+  try {
+    const zero = mean(sim.generate(0.4, 0));
+    const offset =
+      0.0035 * (CELL.assumedExcitationV / CELL.internalRefV) * opts.gain * 8388608;
+    assert.ok(Math.abs(zero - offset) / sketch < 1, `zero drifted ${((zero - offset) / sketch).toFixed(2)} g`);
+    sim.setLoad(500);
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+    const got: Sample[] = [];
+    const unsub = sim.subscribe((batch) => got.push(...batch));
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    unsub();
+    assert.ok(got.length > 20, "expected samples after the step");
+    const grams = (mean(got) - zero) / sketch;
+    assert.ok(Math.abs(grams - 500) < 3, `read ${grams.toFixed(2)} g`);
+  } finally {
+    await sim.stop();
+  }
+});
+
+test("rate ignores a sample-index restart", () => {
+  const samples: Sample[] = [];
+  for (let i = 0; i < 100; i++) samples.push({ hostT: i / 330, t: i / 330, index: 5000 + i, counts: 1 });
+  for (let i = 0; i < 400; i++) samples.push({ hostT: 1 + i / 330, t: 1 + i / 330, index: i, counts: 2 });
+  const rate = rollingRate(samples);
+  assert.ok(rate !== null && Math.abs(rate - 330) < 5, `rate ${rate}`);
+});
+
+test("window drift flags a step and ignores quiet noise", () => {
+  const quiet: Sample[] = [];
+  for (let i = 0; i < 40; i++) quiet.push({ hostT: i / 20, t: i / 20, index: i, counts: 1000 + (i % 2) });
+  const still = windowDrift(quiet, 2);
+  assert.ok(still && Math.abs(still.drift) < 5);
+  const stepped: Sample[] = [];
+  for (let i = 0; i < 40; i++) stepped.push({ hostT: i / 20, t: i / 20, index: i, counts: i < 20 ? 1000 : 5000 });
+  const moving = windowDrift(stepped, 2);
+  assert.ok(moving && moving.drift > 3000);
 });
 
 test("range verdict flags a zero shift", () => {

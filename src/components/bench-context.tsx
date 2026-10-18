@@ -18,8 +18,10 @@ import {
   fitLine,
   hysteresisOf,
   judgeAccuracy,
+  mean,
   rollingRate,
   stdev,
+  windowDrift,
   windowTail,
   type AccuracyVerdict,
   type Fit,
@@ -169,6 +171,7 @@ export function BenchProvider({ children }: { children: ReactNode }) {
   const [noiseFloor, setNoiseFloor] = useState<number[] | null>(null);
   const [zeroCounts, setZeroCounts] = useState<number | null>(null);
   const [returnCounts, setReturnCounts] = useState<number | null>(null);
+  const [webSerial, setWebSerial] = useState(false);
 
   const samplesRef = useRef<Sample[]>([]);
   const dirtyRef = useRef(false);
@@ -204,6 +207,10 @@ export function BenchProvider({ children }: { children: ReactNode }) {
       setRev((n) => n + 1);
     }, 100);
     return () => clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    setWebSerial("serial" in navigator);
   }, []);
 
   const sketch = useMemo(
@@ -375,16 +382,27 @@ export function BenchProvider({ children }: { children: ReactNode }) {
     return source;
   }, [attach, opts, phase]);
 
+  const stillMoving = useCallback((samples: Sample[]) => {
+    const drift = windowDrift(samples, 1.2);
+    if (!drift) return false;
+    const spread = (2 * drift.stdev) / Math.sqrt(drift.n);
+    return Math.abs(drift.drift) > Math.max(8 * spread, 30);
+  }, []);
+
   const tareNow = useCallback(() => {
     const stats = signedMean(samplesRef.current);
     if (!stats) {
       setError("Need about a second of samples before tare.");
       return;
     }
+    if (stillMoving(samplesRef.current)) {
+      setError("The reading is still moving. Wait until it holds still, then tare.");
+      return;
+    }
     setTare(stats.mean);
     setError(null);
     pushLog(`Tare set to ${Math.round(stats.mean)} counts.`);
-  }, [pushLog, signedMean]);
+  }, [pushLog, signedMean, stillMoving]);
 
   const autoGain = useCallback(async () => {
     const source = sourceRef.current;
@@ -476,6 +494,10 @@ export function BenchProvider({ children }: { children: ReactNode }) {
         setError("Let the trace settle for a second, then capture.");
         return;
       }
+      if (stillMoving(samplesRef.current)) {
+        setError("The reading is still moving. Wait until it holds still, then capture again.");
+        return;
+      }
       const recent = samplesRef.current.slice(-400);
       if (recent.some((s) => isSaturated(s.counts))) {
         setError("The ADC is on the rail. Lower the gain before capturing this mass.");
@@ -490,7 +512,7 @@ export function BenchProvider({ children }: { children: ReactNode }) {
       };
       setCaptures((prev) => [...prev, capture]);
     },
-    [signedMean],
+    [signedMean, stillMoving],
   );
 
   useEffect(() => {
@@ -588,14 +610,15 @@ export function BenchProvider({ children }: { children: ReactNode }) {
   );
 
   const runNoise = useCallback(async () => {
+    if (load !== 0 && mode === "sim") {
+      setError("Set the simulator to Empty before measuring the noise floor.");
+      return;
+    }
     abortRef.current = false;
     setPhase("busy");
     setError(null);
     try {
       const source = await ensureStreaming();
-      if (load !== 0 && mode === "sim") {
-        setError("Set the simulator load to 0 g before the noise-floor capture.");
-      }
       const { samples } = await collectSamples(source.subscribe.bind(source), 8, (fraction) => {
         setBusyLabel(`Noise floor · ${(fraction * 8).toFixed(1)} s`);
       }, () => abortRef.current);
@@ -622,6 +645,10 @@ export function BenchProvider({ children }: { children: ReactNode }) {
       setError("Need a second of samples to record this load.");
       return;
     }
+    if (stillMoving(samplesRef.current)) {
+      setError("The reading is still moving. Wait until it holds still, then record this load.");
+      return;
+    }
     const grams = mode === "sim" ? load : Number(massDraft);
     if (!Number.isFinite(grams) || grams < 0) {
       setError("Enter the mass that is on the cell.");
@@ -637,7 +664,7 @@ export function BenchProvider({ children }: { children: ReactNode }) {
     setRangeSteps(steps);
     publishRange(noiseFloor, steps, returnCounts);
     setError(step.saturated ? "That capture is saturated. The usable range stops at the previous mass." : null);
-  }, [load, massDraft, mode, noiseFloor, publishRange, rangeSteps, returnCounts, signedMean]);
+  }, [load, massDraft, mode, noiseFloor, publishRange, rangeSteps, returnCounts, signedMean, stillMoving]);
 
   const captureReturn = useCallback(() => {
     const stats = signedMean(samplesRef.current);
@@ -645,9 +672,13 @@ export function BenchProvider({ children }: { children: ReactNode }) {
       setError("Unload the cell and let it settle, then record the return.");
       return;
     }
+    if (stillMoving(samplesRef.current)) {
+      setError("The reading is still moving. Wait until it holds still, then record the return.");
+      return;
+    }
     setReturnCounts(stats.mean);
     publishRange(noiseFloor, rangeSteps, stats.mean);
-  }, [noiseFloor, publishRange, rangeSteps, signedMean]);
+  }, [noiseFloor, publishRange, rangeSteps, signedMean, stillMoving]);
 
   const downloadCsv = useCallback(() => {
     const lines = ["host_t,t,index,counts"];
@@ -667,7 +698,12 @@ export function BenchProvider({ children }: { children: ReactNode }) {
     void rev;
     return samplesRef.current.slice();
   }, [rev]);
-  const latestRaw = samples.length ? samples[samples.length - 1].counts : null;
+  const readoutWindow = windowTail(samples, 0.45);
+  const latestRaw = readoutWindow.length
+    ? mean(readoutWindow.map((sample) => sample.counts))
+    : samples.length
+      ? samples[samples.length - 1].counts
+      : null;
   const latestCounts = latestRaw === null ? null : invert ? -latestRaw : latestRaw;
   const tail = windowTail(samples, 2);
   const noiseCounts = tail.length > 8 ? stdev(tail.map((s) => s.counts)) : null;
@@ -774,7 +810,7 @@ export function BenchProvider({ children }: { children: ReactNode }) {
     zeroCounts,
     returnCounts,
     downloadCsv,
-    webSerial: typeof navigator !== "undefined" && "serial" in navigator,
+    webSerial,
   };
 
   return <Ctx.Provider value={api}>{children}</Ctx.Provider>;
