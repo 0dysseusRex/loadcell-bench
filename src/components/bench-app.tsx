@@ -184,7 +184,7 @@ function LivePanel() {
                 {bench.latestGrams !== null ? `${bench.latestGrams.toFixed(2)} g` : bench.latestCounts !== null ? fmtCounts(bench.latestCounts) : "—"}
               </div>
               <div className="mt-1 font-mono text-xs text-[#6d675e] tabular-nums">
-                {bench.latestCounts !== null ? `${fmtCounts(bench.latestCounts)} counts` : "waiting for samples"}
+                {bench.latestCounts !== null ? `${Math.round(bench.latestCounts).toLocaleString()} counts` : "waiting for samples"}
                 {bench.rate !== null ? ` · ${bench.rate.toFixed(1)} Hz delivered` : ""}
               </div>
             </div>
