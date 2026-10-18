@@ -791,24 +791,38 @@ function BuildPanel() {
 
 function EnteredScaleForm() {
   const bench = useBench();
-  const [cpg, setCpg] = useState("");
-  const [tare, setTare] = useState("");
+  const [cpg, setCpg] = useState(() => (bench.countsPerGram === null ? "" : String(bench.countsPerGram)));
+  const [tare, setTare] = useState(() => (bench.tare === null ? "" : String(Math.round(bench.tare))));
+  const live =
+    bench.countsPerGram !== null &&
+    bench.tare !== null &&
+    (bench.scaleSource === "entered" || bench.scaleSource === "calibration");
   return (
     <div className="space-y-3 rounded-lg border border-[#e4ddd0] bg-[#f7f4ee] p-3">
-      <p className="text-sm text-[#3c3832]">Type a scale you already trust. The simulator and the live grams follow it instead of the leaf sketch.</p>
+      <p className="text-sm text-[#3c3832]">Type a scale you already trust. The simulator and the live grams follow it instead of the leaf sketch. A blank field keeps the number already in use.</p>
       <Field label="Counts per gram">
-        <Input value={cpg} inputMode="decimal" placeholder={bench.countsPerGram !== null ? bench.countsPerGram.toFixed(2) : "e.g. 40"} onChange={(event) => setCpg(event.target.value)} />
+        <Input value={cpg} inputMode="decimal" placeholder="e.g. 40" onChange={(event) => setCpg(event.target.value)} />
       </Field>
       <Field label="Tare counts">
-        <Input value={tare} inputMode="decimal" placeholder={bench.tare !== null ? String(Math.round(bench.tare)) : "empty-cell counts"} onChange={(event) => setTare(event.target.value)} />
+        <Input value={tare} inputMode="decimal" placeholder="empty-cell counts" onChange={(event) => setTare(event.target.value)} />
       </Field>
       <Button
         className="w-full"
         variant="secondary"
-        onClick={() => bench.applyEnteredScale(cpg.trim() === "" ? Number.NaN : Number(cpg), tare.trim() === "" ? Number.NaN : Number(tare))}
+        onClick={() =>
+          bench.applyEnteredScale(
+            cpg.trim() === "" ? (bench.countsPerGram ?? Number.NaN) : Number(cpg),
+            tare.trim() === "" ? (bench.tare ?? Number.NaN) : Number(tare),
+          )
+        }
       >
         Use this scale
       </Button>
+      {live && (
+        <p className="text-xs text-[#5c564c]">
+          Live scale is {bench.countsPerGram!.toFixed(2)} ct/g, tare {Math.round(bench.tare!).toLocaleString()} counts.
+        </p>
+      )}
     </div>
   );
 }
