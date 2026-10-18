@@ -772,6 +772,11 @@ export function BenchProvider({ children }: { children: ReactNode }) {
     [countsPerGram, noiseRmsEntered, phase, speedResults, zeroCounts],
   );
 
+  useEffect(() => {
+    if (!rangeSteps.length && !noiseFloor && noiseRmsEntered === null && returnCounts === null && zeroCounts === null) return;
+    publishRange(noiseFloor, rangeSteps, returnCounts);
+  }, [countsPerGram, noiseFloor, noiseRmsEntered, publishRange, rangeSteps, returnCounts, zeroCounts]);
+
   const runNoise = useCallback(async () => {
     if (load !== 0 && mode === "sim") {
       setError("Set the simulator to Empty before measuring the noise floor.");
