@@ -39,6 +39,10 @@ export type ScaleInput = {
   neckCount: number;
   gain: number;
   vref: "internal" | "analog_supply";
+  thicknessMm?: number;
+  youngMpa?: number;
+  yieldMpa?: number;
+  gaugeFactor?: number;
   excitationV?: number;
 };
 
@@ -51,12 +55,12 @@ export type ScaleEstimate = {
 };
 
 export function estimateScale(input: ScaleInput): ScaleEstimate {
-  const t = CELL.thicknessMm;
+  const t = input.thicknessMm ?? CELL.thicknessMm;
   const b = input.neckWidthMm * input.neckCount;
   const L = input.neckLengthMm;
-  const E = CELL.youngMpa;
-  const Sy = CELL.yieldMpa;
-  const gf = CELL.gauge.gaugeFactor;
+  const E = input.youngMpa ?? CELL.youngMpa;
+  const Sy = input.yieldMpa ?? CELL.yieldMpa;
+  const gf = input.gaugeFactor ?? CELL.gauge.gaugeFactor;
   const vex = input.excitationV ?? CELL.assumedExcitationV;
   // Guided leaf, moment FL/2, section modulus b*t^2/6.
   // sigma = F * 3 * L / (b * t^2) for the whole load shared by the necks.

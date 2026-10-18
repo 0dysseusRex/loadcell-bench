@@ -37,7 +37,7 @@ import { CELL, estimateScale } from "@/lib/model";
 import { SimulatorSource } from "@/lib/simulator";
 
 export type Phase = "idle" | "connecting" | "ready" | "streaming" | "busy";
-export type ScaleSource = "none" | "sketch" | "calibration";
+export type ScaleSource = "none" | "sketch" | "calibration" | "entered";
 export type Vref = "internal" | "analog_supply";
 
 export type Capture = {
@@ -87,6 +87,28 @@ type BenchApi = {
   setNeckWidth: (mm: number) => void;
   neckLength: number;
   setNeckLength: (mm: number) => void;
+  neckCount: number;
+  setNeckCount: (count: number) => void;
+  cellName: string;
+  setCellName: (name: string) => void;
+  thicknessMm: number;
+  setThicknessMm: (mm: number) => void;
+  youngMpa: number;
+  setYoungMpa: (mpa: number) => void;
+  yieldMpa: number;
+  setYieldMpa: (mpa: number) => void;
+  gaugeFactor: number;
+  setGaugeFactor: (factor: number) => void;
+  ratedGrams: number | null;
+  setRatedGrams: (grams: number | null) => void;
+  insertCapture: (kind: Capture["kind"], grams: number, counts: number) => void;
+  removeCapture: (id: number) => void;
+  insertRangeStep: (grams: number, counts: number, saturated: boolean) => void;
+  removeRangeStep: (index: number) => void;
+  useEnteredNoise: (rmsCounts: number) => void;
+  noiseRmsEntered: number | null;
+  applyEnteredScale: (countsPerGram: number, tareCounts: number) => void;
+  useSketchScale: () => void;
   samples: Sample[];
   rate: number | null;
   latestCounts: number | null;
@@ -162,6 +184,14 @@ export function BenchProvider({ children }: { children: ReactNode }) {
   const [load, setLoadState] = useState(0);
   const [neckWidth, setNeckWidthState] = useState(CELL.defaultNeckWidthMm);
   const [neckLength, setNeckLengthState] = useState(CELL.defaultNeckLengthMm);
+  const [neckCount, setNeckCountState] = useState(CELL.defaultNeckCount);
+  const [cellName, setCellName] = useState(CELL.name);
+  const [thicknessMm, setThicknessMm] = useState(CELL.thicknessMm);
+  const [youngMpa, setYoungMpa] = useState(CELL.youngMpa);
+  const [yieldMpa, setYieldMpa] = useState(CELL.yieldMpa);
+  const [gaugeFactor, setGaugeFactor] = useState(CELL.gauge.gaugeFactor);
+  const [ratedGrams, setRatedGrams] = useState<number | null>(null);
+  const [noiseRmsEntered, setNoiseRmsEntered] = useState<number | null>(null);
   const [rev, setRev] = useState(0);
   const [busyLabel, setBusyLabel] = useState("");
   const [speedRates, setSpeedRates] = useState<number[]>(SPEED_DEFAULT);
@@ -221,22 +251,37 @@ export function BenchProvider({ children }: { children: ReactNode }) {
     setWebSerial("serial" in navigator);
   }, []);
 
+  const geometry = useMemo(
+    () => ({
+      neckWidthMm: neckWidth,
+      neckLengthMm: neckLength,
+      neckCount,
+      thicknessMm,
+      youngMpa,
+      yieldMpa,
+      gaugeFactor,
+    }),
+    [neckWidth, neckLength, neckCount, thicknessMm, youngMpa, yieldMpa, gaugeFactor],
+  );
+  const geometryRef = useRef(geometry);
+  geometryRef.current = geometry;
+  const cpgRef = useRef(countsPerGram);
+  cpgRef.current = countsPerGram;
+
   const sketch = useMemo(
-    () =>
-      estimateScale({
-        neckWidthMm: neckWidth,
-        neckLengthMm: neckLength,
-        neckCount: CELL.defaultNeckCount,
-        gain,
-        vref,
-      }),
-    [neckWidth, neckLength, gain, vref],
+    () => estimateScale({ ...geometry, gain, vref }),
+    [geometry, gain, vref],
   );
 
   useEffect(() => {
-    simRef.current?.setGeometry(neckWidth, neckLength, CELL.defaultNeckCount);
+    simRef.current?.setGeometry(geometry);
     if (scaleSource === "sketch") setCountsPerGram(sketch.countsPerGram);
-  }, [neckWidth, neckLength, sketch, scaleSource]);
+  }, [geometry, sketch, scaleSource]);
+
+  useEffect(() => {
+    if (scaleSource === "sketch") simRef.current?.setSensitivity(null);
+    else if (countsPerGram) simRef.current?.setSensitivity(countsPerGram);
+  }, [scaleSource, countsPerGram]);
 
   const attach = useCallback((source: Source) => {
     unsubRef.current?.();
@@ -291,24 +336,27 @@ export function BenchProvider({ children }: { children: ReactNode }) {
     void (async () => {
       await disconnect();
       const sim = new SimulatorSource();
-      sim.setGeometry(neckWRef.current, neckLRef.current, CELL.defaultNeckCount);
+      sim.setGeometry(geometryRef.current);
       simRef.current = sim;
       sourceRef.current = sim;
       setMode("sim");
       setPhase("ready");
       setError(null);
-      setScaleSource("sketch");
-      setTare(null);
-      setCountsPerGram(
-        estimateScale({
-          neckWidthMm: neckWRef.current,
-          neckLengthMm: neckLRef.current,
-          neckCount: CELL.defaultNeckCount,
-          gain: gainRef.current,
-          vref: vrefRef.current,
-        }).countsPerGram,
+      const keepScale = scaleSourceRef.current === "entered" || scaleSourceRef.current === "calibration";
+      if (!keepScale) {
+        setScaleSource("sketch");
+        setTare(null);
+        const cpg = estimateScale({ ...geometryRef.current, gain: gainRef.current, vref: vrefRef.current }).countsPerGram;
+        setCountsPerGram(cpg);
+        sim.setSensitivity(null);
+      } else if (cpgRef.current) {
+        sim.setSensitivity(cpgRef.current);
+      }
+      pushLog(
+        keepScale
+          ? `Simulator is on for ${frontRef.current.label}, using the scale you entered.`
+          : `Simulator is on for ${frontRef.current.label}. Grams use the leaf sketch until you enter a scale or run Accuracy.`,
       );
-      pushLog(`Simulator is on for ${frontRef.current.label}. Numbers come from the flexure sketch, not from a board.`);
     })();
   }, [disconnect, pushLog]);
 
@@ -332,6 +380,7 @@ export function BenchProvider({ children }: { children: ReactNode }) {
     setRangeSteps([]);
     setRangeResult(null);
     setNoiseFloor(null);
+    setNoiseRmsEntered(null);
     setZeroCounts(null);
     setReturnCounts(null);
     setError(null);
@@ -357,10 +406,17 @@ export function BenchProvider({ children }: { children: ReactNode }) {
         `${session.mcu || "MCU"} ${session.version} · ${(session.clockHz / 1e6).toFixed(1)} MHz`,
       );
       setPhase("ready");
-      setScaleSource("none");
-      setCountsPerGram(null);
-      setTare(null);
-      pushLog(`${frontRef.current.label} is configured. Start the stream when the cell is still.`);
+      const keepScale = scaleSourceRef.current === "entered" || scaleSourceRef.current === "calibration";
+      if (!keepScale) {
+        setScaleSource("none");
+        setCountsPerGram(null);
+        setTare(null);
+      }
+      pushLog(
+        keepScale
+          ? `${frontRef.current.label} is configured. Grams stay on the scale you entered.`
+          : `${frontRef.current.label} is configured. Start the stream when the cell is still.`,
+      );
     } catch (err) {
       if (err instanceof DOMException && (err.name === "NotFoundError" || err.name === "AbortError")) {
         setPhase("idle");
@@ -637,8 +693,69 @@ export function BenchProvider({ children }: { children: ReactNode }) {
     pushLog(`Calibration applied: ${fit.countsPerGram.toFixed(2)} counts per gram.`);
   }, [fit, pushLog]);
 
+  const insertCapture = useCallback((kind: Capture["kind"], grams: number, counts: number) => {
+    if (!Number.isFinite(grams) || grams < 0) {
+      setError("Enter a mass in grams.");
+      return;
+    }
+    if (!Number.isFinite(counts)) {
+      setError("Enter the counts for that mass.");
+      return;
+    }
+    setCaptures((prev) => [
+      ...prev,
+      {
+        id: idRef.current++,
+        kind,
+        grams: kind === "zero" ? 0 : grams,
+        counts,
+        stdev: 0,
+        n: 1,
+      },
+    ]);
+    setError(null);
+  }, []);
+
+  const removeCapture = useCallback((id: number) => {
+    setCaptures((prev) => prev.filter((capture) => capture.id !== id));
+  }, []);
+
+  const applyEnteredScale = useCallback((cpg: number, tareCounts: number) => {
+    if (!Number.isFinite(cpg) || cpg <= 0) {
+      setError("Enter a positive counts-per-gram. Use Invert sign if the bridge reads the other way.");
+      return;
+    }
+    if (!Number.isFinite(tareCounts)) {
+      setError("Enter the tare counts.");
+      return;
+    }
+    setCountsPerGram(cpg);
+    setTare(tareCounts);
+    setScaleSource("entered");
+    simRef.current?.setSensitivity(cpg > 0 ? cpg : null);
+    setError(null);
+    pushLog(`Entered scale: ${cpg.toFixed(2)} counts per gram, tare ${Math.round(tareCounts)} counts.`);
+  }, [pushLog]);
+
+  const useSketchScale = useCallback(() => {
+    const cpg = estimateScale({
+      ...geometryRef.current,
+      gain: gainRef.current,
+      vref: vrefRef.current,
+    }).countsPerGram;
+    if (!Number.isFinite(cpg) || cpg === 0) {
+      setError("The leaf sketch needs a positive thickness, neck size, and gauge factor.");
+      return;
+    }
+    setCountsPerGram(cpg);
+    setScaleSource("sketch");
+    simRef.current?.setSensitivity(null);
+    setError(null);
+    pushLog(`Leaf sketch is the scale: ${cpg.toFixed(2)} counts per gram.`);
+  }, [pushLog]);
+
   const publishRange = useCallback(
-    (floor: number[] | null, steps: RangeStep[], ret: number | null) => {
+    (floor: number[] | null, steps: RangeStep[], ret: number | null, rms: number | null = noiseRmsEntered) => {
       const best = speedResults.filter((r) => r.pass).sort((a, b) => b.measuredHz - a.measuredHz)[0];
       setRangeResult(
         analyzeRange({
@@ -648,10 +765,11 @@ export function BenchProvider({ children }: { children: ReactNode }) {
           zeroCounts,
           returnCounts: ret,
           bestRateHz: best ? best.measuredHz : phase === "streaming" ? rollingRate(samplesRef.current) : null,
+          noiseRmsCounts: rms,
         }),
       );
     },
-    [countsPerGram, phase, speedResults, zeroCounts],
+    [countsPerGram, noiseRmsEntered, phase, speedResults, zeroCounts],
   );
 
   const runNoise = useCallback(async () => {
@@ -669,11 +787,12 @@ export function BenchProvider({ children }: { children: ReactNode }) {
       }, () => abortRef.current);
       const sign = invertRef.current ? -1 : 1;
       const xs = samples.map((s) => s.counts * sign);
+      setNoiseRmsEntered(null);
       setNoiseFloor(xs);
       const stats = signedMean(samples);
       if (stats) setZeroCounts(stats.mean);
       setReturnCounts(null);
-      publishRange(xs, rangeSteps, null);
+      publishRange(xs, rangeSteps, null, null);
       setPhase("streaming");
       pushLog(`Noise floor: ${stdev(xs).toFixed(1)} counts rms over ${xs.length} samples.`);
     } catch (err) {
@@ -725,6 +844,40 @@ export function BenchProvider({ children }: { children: ReactNode }) {
     publishRange(noiseFloor, rangeSteps, stats.mean);
   }, [noiseFloor, publishRange, rangeSteps, signedMean, stillMoving]);
 
+  const insertRangeStep = useCallback((grams: number, counts: number, saturated: boolean) => {
+    if (!Number.isFinite(grams) || grams < 0) {
+      setError("Enter a mass in grams.");
+      return;
+    }
+    if (!Number.isFinite(counts)) {
+      setError("Enter the counts for that mass.");
+      return;
+    }
+    const step: RangeStep = { grams, counts, saturated, stdev: 0 };
+    const steps = [...rangeSteps, step].sort((a, b) => a.grams - b.grams);
+    setRangeSteps(steps);
+    publishRange(noiseFloor, steps, returnCounts);
+    setError(saturated ? "That point is marked saturated. The usable range stops at the previous mass." : null);
+  }, [noiseFloor, publishRange, rangeSteps, returnCounts]);
+
+  const removeRangeStep = useCallback((index: number) => {
+    const steps = rangeSteps.filter((_, i) => i !== index);
+    setRangeSteps(steps);
+    publishRange(noiseFloor, steps, returnCounts);
+  }, [noiseFloor, publishRange, rangeSteps, returnCounts]);
+
+  const useEnteredNoise = useCallback((rmsCounts: number) => {
+    if (!Number.isFinite(rmsCounts) || rmsCounts < 0) {
+      setError("Enter the noise as counts rms, zero or greater.");
+      return;
+    }
+    setNoiseRmsEntered(rmsCounts);
+    setNoiseFloor(null);
+    publishRange(null, rangeSteps, returnCounts, rmsCounts);
+    setError(null);
+    pushLog(`Noise floor entered as ${rmsCounts.toFixed(1)} counts rms.`);
+  }, [publishRange, pushLog, rangeSteps, returnCounts]);
+
   const downloadCsv = useCallback(() => {
     const lines = ["host_t,t,index,counts"];
     for (const sample of samplesRef.current) {
@@ -733,11 +886,12 @@ export function BenchProvider({ children }: { children: ReactNode }) {
     const blob = new Blob([lines.join("\n")], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
+    const slug = (cellName.trim() || "loadcell").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "loadcell";
     link.href = url;
-    link.download = "k2-loadcell-trace.csv";
+    link.download = `${slug}-trace.csv`;
     link.click();
     URL.revokeObjectURL(url);
-  }, []);
+  }, [cellName]);
 
   const samples = useMemo(() => {
     void rev;
@@ -797,9 +951,51 @@ export function BenchProvider({ children }: { children: ReactNode }) {
       simRef.current?.setLoad(grams);
     },
     neckWidth,
-    setNeckWidth: setNeckWidthState,
+    setNeckWidth: (mm) => {
+      if (Number.isFinite(mm) && mm > 0) setNeckWidthState(mm);
+    },
     neckLength,
-    setNeckLength: setNeckLengthState,
+    setNeckLength: (mm) => {
+      if (Number.isFinite(mm) && mm > 0) setNeckLengthState(mm);
+    },
+    neckCount,
+    setNeckCount: (count) => {
+      if (Number.isFinite(count) && count > 0) setNeckCountState(count);
+    },
+    cellName,
+    setCellName,
+    thicknessMm,
+    setThicknessMm: (mm) => {
+      if (Number.isFinite(mm) && mm > 0) setThicknessMm(mm);
+    },
+    youngMpa,
+    setYoungMpa: (mpa) => {
+      if (Number.isFinite(mpa) && mpa > 0) setYoungMpa(mpa);
+    },
+    yieldMpa,
+    setYieldMpa: (mpa) => {
+      if (Number.isFinite(mpa) && mpa > 0) setYieldMpa(mpa);
+    },
+    gaugeFactor,
+    setGaugeFactor: (factor) => {
+      if (Number.isFinite(factor) && factor > 0) setGaugeFactor(factor);
+    },
+    ratedGrams,
+    setRatedGrams: (grams) => {
+      if (grams === null) {
+        setRatedGrams(null);
+        return;
+      }
+      if (Number.isFinite(grams) && grams >= 0) setRatedGrams(grams);
+    },
+    insertCapture,
+    removeCapture,
+    insertRangeStep,
+    removeRangeStep,
+    useEnteredNoise,
+    noiseRmsEntered,
+    applyEnteredScale,
+    useSketchScale,
     samples,
     rate,
     latestCounts,
@@ -852,6 +1048,7 @@ export function BenchProvider({ children }: { children: ReactNode }) {
       setRangeSteps([]);
       setRangeResult(null);
       setNoiseFloor(null);
+      setNoiseRmsEntered(null);
       setZeroCounts(null);
       setReturnCounts(null);
     },

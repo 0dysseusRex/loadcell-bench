@@ -6,6 +6,10 @@ export type SimOptions = StreamOptions & {
   neckWidthMm: number;
   neckLengthMm: number;
   neckCount: number;
+  thicknessMm?: number;
+  youngMpa?: number;
+  yieldMpa?: number;
+  gaugeFactor?: number;
   /** Bridge imbalance as a fraction of excitation. Real CA bonds are rarely zero. */
   offsetRatio?: number;
 };
@@ -38,6 +42,8 @@ export class SimulatorSource {
   private creepFrom = 0;
   /** Adhesive creep, in counts, already present when the load last changed. */
   private creepCarry = 0;
+  /** When set, the load signal uses this scale instead of the leaf sketch. */
+  private sensitivity: number | null = null;
   private rng = mulberry32(0x4b32);
   overflows = 0;
   gaps = 0;
@@ -69,8 +75,21 @@ export class SimulatorSource {
     this.stopClock();
   }
 
-  setGeometry(neckWidthMm: number, neckLengthMm: number, neckCount: number) {
-    this.opts = { ...this.opts, neckWidthMm, neckLengthMm, neckCount };
+  setGeometry(geometry: {
+    neckWidthMm: number;
+    neckLengthMm: number;
+    neckCount: number;
+    thicknessMm?: number;
+    youngMpa?: number;
+    yieldMpa?: number;
+    gaugeFactor?: number;
+  }) {
+    this.opts = { ...this.opts, ...geometry };
+  }
+
+  /** Null returns the simulator to the leaf sketch. */
+  setSensitivity(countsPerGram: number | null) {
+    this.sensitivity = countsPerGram !== null && countsPerGram > 0 ? countsPerGram : null;
   }
 
   setLoad(grams: number) {
@@ -152,8 +171,7 @@ export class SimulatorSource {
 
   private elasticCounts(grams: number): number {
     const scale = estimateScale(this.opts);
-    const ratio = this.bridgeRatio(grams, scale.countsPerGram);
-    return ratio;
+    return this.bridgeRatio(grams, this.sensitivity ?? scale.countsPerGram);
   }
 
   private offsetCounts(): number {

@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import Image from "next/image";
 import { BenchProvider, useBench, type Capture } from "@/components/bench-context";
 import { CellOutline } from "@/components/cell-outline";
@@ -44,9 +44,9 @@ function BenchShell() {
         <div className="mx-auto flex max-w-6xl flex-col gap-4 px-4 py-4 sm:px-6 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <p className="text-[11px] font-medium tracking-[0.16em] text-[#8a5a32] uppercase">
-              6061-T6 · BA1000-3AA · full bridge
+              {bench.cellName.trim() || "Unnamed load cell"}
             </p>
-            <h1 className="mt-1 text-2xl font-semibold tracking-tight sm:text-3xl">K2 loadcell bench</h1>
+            <h1 className="mt-1 text-2xl font-semibold tracking-tight sm:text-3xl">Load cell bench</h1>
             <p className="mt-1 max-w-xl text-sm text-[#5c564c]">
               Stream a Plimsoll ADC over Klipper USB and measure rate, accuracy, and range before the cell goes on a printer.
             </p>
@@ -152,11 +152,13 @@ function LivePanel() {
             <div>
               <CardTitle className="text-base">Bridge trace</CardTitle>
               <CardDescription>
-                {bench.scaleSource === "calibration"
-                  ? "Scale is from the accuracy captures."
-                  : bench.scaleSource === "sketch"
-                    ? "Grams use the flexure sketch. Run Accuracy to replace it."
-                    : "Counts only, until you tare and calibrate."}
+                {bench.scaleSource === "entered"
+                  ? "Grams use the scale you typed on the Build tab."
+                  : bench.scaleSource === "calibration"
+                    ? "Scale is from the accuracy measurements."
+                    : bench.scaleSource === "sketch"
+                      ? "Grams use the optional leaf sketch. Type a scale, or fit one on Accuracy, to replace it."
+                      : "Counts only, until you type a scale or fit one."}
               </CardDescription>
             </div>
             <div className="flex gap-2">
@@ -429,7 +431,7 @@ function AccuracyPanel() {
         <CardHeader>
           <CardTitle className="text-base">Known masses</CardTitle>
           <CardDescription>
-            Tare is not required first. Capture the empty cell, then at least two real masses. Unload the same masses for hysteresis, repeat one mass for scatter, and hold the heaviest for 30 seconds to see Loctite 401 creep.
+            Capture from a stream, or type mass and counts from a notebook. Empty plus two loaded masses shows whether the line misses. Unload the same masses for hysteresis. A two-point line always looks perfect.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -460,10 +462,11 @@ function AccuracyPanel() {
               Clear
             </Button>
           </div>
+          <ManualCapture />
           {bench.captures.length === 0 ? (
-            <p className="text-sm text-[#5c564c]">No captures. Stream first, with the cell still, then capture empty.</p>
+            <p className="text-sm text-[#5c564c]">No measurements yet. Stream and capture a still cell, or type a mass and the counts you read.</p>
           ) : (
-            <CaptureTable captures={bench.captures} />
+            <CaptureTable captures={bench.captures} onRemove={bench.removeCapture} />
           )}
           {bench.creep && (
             <p className="text-sm text-[#5c564c]">
@@ -501,7 +504,7 @@ function AccuracyPanel() {
               </Button>
             </>
           ) : (
-            <p className="text-[#5c564c]">Capture empty and two masses. The line is fit as counts = offset + counts-per-gram × mass.</p>
+            <p className="text-[#5c564c]">Add the empty cell and at least one loaded mass. The line is counts = offset + counts-per-gram × mass.</p>
           )}
         </CardContent>
       </Card>
@@ -514,17 +517,23 @@ function RangePanel() {
   const sketch = estimateScale({
     neckWidthMm: bench.neckWidth,
     neckLengthMm: bench.neckLength,
-    neckCount: CELL.defaultNeckCount,
+    neckCount: bench.neckCount,
+    thicknessMm: bench.thicknessMm,
+    youngMpa: bench.youngMpa,
+    yieldMpa: bench.yieldMpa,
+    gaugeFactor: bench.gaugeFactor,
     gain: bench.gain,
     vref: bench.vref,
   });
+  const overRated =
+    bench.ratedGrams !== null && bench.rangeSteps.some((step) => step.grams > bench.ratedGrams!);
   return (
     <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Noise floor and usable load</CardTitle>
           <CardDescription>
-            Eight seconds unloaded gives the resolution. Then add mass until the ADC saturates or the zero does not come back. A zero shift larger than the noise means the aluminum or the adhesive took a set.
+            Eight seconds unloaded gives the resolution, or type a noise rms you already measured. Then add loads until the ADC saturates or the zero does not come back.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -542,28 +551,35 @@ function RangePanel() {
               Clear
             </Button>
           </div>
-          {bench.mode === "sim" ? <LoadSlider /> : (
+          {bench.mode === "sim" ? <LoadSlider /> : bench.mode === "mcu" ? (
             <Field label="Mass on the cell, grams">
               <Input value={bench.massDraft} onChange={(event) => bench.setMassDraft(event.target.value)} inputMode="decimal" />
             </Field>
-          )}
+          ) : null}
+          <ManualRange />
           {bench.rangeSteps.length === 0 ? (
-            <p className="text-sm text-[#5c564c]">No loads recorded. Measure the noise floor with the cell empty, then step up through the masses you have.</p>
+            <p className="text-sm text-[#5c564c]">No loads recorded. Measure or type the noise with the cell empty, then step up through the masses you have.</p>
           ) : (
             <table className="w-full text-left text-sm">
               <thead className="text-xs tracking-wide text-[#6d675e] uppercase">
                 <tr>
                   <th className="py-2 pr-3 font-medium">Mass</th>
                   <th className="py-2 pr-3 font-medium">Counts</th>
-                  <th className="py-2 font-medium">ADC</th>
+                  <th className="py-2 pr-3 font-medium">ADC</th>
+                  <th className="py-2 font-medium" />
                 </tr>
               </thead>
               <tbody>
-                {bench.rangeSteps.map((step) => (
-                  <tr key={`${step.grams}-${step.counts}`} className="border-t border-[#eee6d8]">
+                {bench.rangeSteps.map((step, index) => (
+                  <tr key={`${index}-${step.grams}-${step.counts}`} className="border-t border-[#eee6d8]">
                     <td className="py-2 pr-3 font-mono">{step.grams} g</td>
                     <td className="py-2 pr-3 font-mono">{Math.round(step.counts)}</td>
-                    <td className="py-2">{step.saturated ? "Saturated" : "Inside range"}</td>
+                    <td className="py-2 pr-3">{step.saturated ? "Saturated" : "Inside range"}</td>
+                    <td className="py-2 text-right">
+                      <button type="button" className="text-xs text-[#8a5a32] underline underline-offset-4" onClick={() => bench.removeRangeStep(index)}>
+                        Remove
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -600,8 +616,17 @@ function RangePanel() {
             <p className="text-[#5c564c]">The noise measurement fills this in. Probing wants about {GOALS.probeNoiseGrams} g of 3-sigma noise and {GOALS.probeMinHz} Hz. A force trace for pressure advance wants closer to {GOALS.forceNoiseGrams} g and {GOALS.forceMinHz} Hz.</p>
           )}
           <Separator />
+          {bench.ratedGrams !== null && (
+            <p className="text-xs text-[#6d675e]">
+              Rated capacity you entered: {bench.ratedGrams.toLocaleString()} g.
+              {overRated ? " A recorded load is past that. The return-to-zero row is what tells you the cell took a set." : " Stay under it until a return-to-zero says the cell came back."}
+            </p>
+          )}
+          {bench.noiseRmsEntered !== null && (
+            <p className="text-xs text-[#6d675e]">Noise rms is the {bench.noiseRmsEntered.toFixed(1)} counts you typed. Measuring the floor replaces it.</p>
+          )}
           <p className="text-xs text-[#6d675e]">
-            Sketch yield, if the gauged necks are {bench.neckWidth.toFixed(1)} mm wide and {bench.neckLength.toFixed(0)} mm long: {sketch.yieldKg.toFixed(0)} kg. That is a ceiling so you do not yield the plate. The return-to-zero capture is the real check. Edit the neck size on the Build tab.
+            Optional leaf sketch, {bench.neckCount} necks {bench.neckWidth.toFixed(1)} mm by {bench.neckLength.toFixed(0)} mm, {bench.thicknessMm.toFixed(2)} mm thick: about {sketch.yieldKg.toFixed(1)} kg before yield. That figure is only a ceiling for a leaf flexure. It is not a measurement of every cell.
           </p>
         </CardContent>
       </Card>
@@ -611,56 +636,78 @@ function RangePanel() {
 
 function BuildPanel() {
   const bench = useBench();
+  const hasScale = bench.scaleSource === "calibration" || bench.scaleSource === "entered";
   const snippet = printerSnippet({
     front: bench.front,
+    cellName: bench.cellName,
     gain: bench.gain,
     sampleRate: bench.sampleRate,
     vref: bench.vref,
-    countsPerGram: bench.scaleSource === "calibration" ? bench.countsPerGram : null,
-    tareCounts: bench.scaleSource === "calibration" ? bench.tare : null,
+    countsPerGram: hasScale ? bench.countsPerGram : null,
+    tareCounts: hasScale ? bench.tare : null,
   });
+  const fileSlug = bench.cellName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "loadcell";
   return (
     <div className="space-y-4">
       <div className="grid gap-4 lg:grid-cols-2">
-        <figure className="overflow-hidden rounded-xl border border-[#e0d8cc] bg-white">
-          <div className="relative aspect-[4/3] w-full">
-            <Image src="/cell/gauges.jpg" alt="Four BA1000-3AA gauges bonded to the flexure arms with Loctite 401, red jumper wires, and a four-conductor cable" fill className="object-cover" sizes="(min-width: 1024px) 50vw, 100vw" />
-          </div>
-          <figcaption className="px-3 py-2 text-xs text-[#5c564c]">Gauges bonded with Loctite 401. All four are on this face, two on each side of the center web.</figcaption>
-        </figure>
-        <figure className="overflow-hidden rounded-xl border border-[#e0d8cc] bg-white">
-          <div className="relative aspect-[4/3] w-full">
-            <Image src="/cell/coated.jpg" alt="The same loadcell after the gauges and wiring were covered in grey Loctite 9460 epoxy" fill className="object-cover" sizes="(min-width: 1024px) 50vw, 100vw" />
-          </div>
-          <figcaption className="px-3 py-2 text-xs text-[#5c564c]">Loctite 9460 over the gauges and the jumper wires. Let it finish curing before you trust a zero.</figcaption>
-        </figure>
-      </div>
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Cut file</CardTitle>
-            <CardDescription>38.0 × 24.0 mm, 0.100 in 6061-T6. The closed paths inside the outline are the laser cuts: triangular windows, the lower slot, and the mounting holes.</CardDescription>
+            <CardTitle className="text-base">Cell you are testing</CardTitle>
+            <CardDescription>
+              Any full-bridge cell. Name it, set the capacity you are willing to load, and type a scale if you already know counts per gram. Accuracy and Range can take mass-and-count rows without a stream.
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            <CellOutline className="w-full rounded-lg border border-[#e4ddd0] bg-[#f6f3ec]" />
-            <a className="text-sm text-[#8a5a32] underline underline-offset-4" href="/cell/NewLoadcell.dxf" download>
-              Download NewLoadcell.dxf
-            </a>
+            <Field label="Name">
+              <Input value={bench.cellName} onChange={(event) => bench.setCellName(event.target.value)} />
+            </Field>
+            <Field label="Rated capacity, grams">
+              <Input
+                type="number"
+                min={0}
+                step="10"
+                placeholder="optional"
+                value={bench.ratedGrams ?? ""}
+                onChange={(event) => bench.setRatedGrams(event.target.value === "" ? null : Number(event.target.value))}
+              />
+            </Field>
+            <EnteredScaleForm />
           </CardContent>
         </Card>
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Neck sketch</CardTitle>
-            <CardDescription>Out-of-plane bending of two leaf necks. Used only as a starting scale for the simulator and as a yield ceiling.</CardDescription>
+            <CardTitle className="text-base">Optional leaf sketch</CardTitle>
+            <CardDescription>
+              Out-of-plane bending of the gauged necks. The numbers start as the K2 plate. Use them only when this cell is that kind of flexure. A typed scale replaces the sketch.
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            <Field label="Neck width, mm">
-              <Input type="number" step="0.1" min={0.4} value={bench.neckWidth} onChange={(event) => bench.setNeckWidth(Number(event.target.value) || CELL.defaultNeckWidthMm)} />
-            </Field>
-            <Field label="Neck length, mm">
-              <Input type="number" step="0.5" min={2} value={bench.neckLength} onChange={(event) => bench.setNeckLength(Number(event.target.value) || CELL.defaultNeckLengthMm)} />
-            </Field>
-            <BridgeNotes />
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field label="Thickness, mm">
+                <Input type="number" step="0.01" min={0.2} value={bench.thicknessMm} onChange={(event) => bench.setThicknessMm(Number(event.target.value) || CELL.thicknessMm)} />
+              </Field>
+              <Field label="Young's modulus, MPa">
+                <Input type="number" step="100" min={1} value={bench.youngMpa} onChange={(event) => bench.setYoungMpa(Number(event.target.value) || CELL.youngMpa)} />
+              </Field>
+              <Field label="Yield strength, MPa">
+                <Input type="number" step="1" min={1} value={bench.yieldMpa} onChange={(event) => bench.setYieldMpa(Number(event.target.value) || CELL.yieldMpa)} />
+              </Field>
+              <Field label="Gauge factor">
+                <Input type="number" step="0.01" min={0.1} value={bench.gaugeFactor} onChange={(event) => bench.setGaugeFactor(Number(event.target.value) || CELL.gauge.gaugeFactor)} />
+              </Field>
+              <Field label="Neck count">
+                <Input type="number" step="1" min={1} value={bench.neckCount} onChange={(event) => bench.setNeckCount(Number(event.target.value) || CELL.defaultNeckCount)} />
+              </Field>
+              <Field label="Neck width, mm">
+                <Input type="number" step="0.1" min={0.4} value={bench.neckWidth} onChange={(event) => bench.setNeckWidth(Number(event.target.value) || CELL.defaultNeckWidthMm)} />
+              </Field>
+              <Field label="Neck length, mm">
+                <Input type="number" step="0.5" min={2} value={bench.neckLength} onChange={(event) => bench.setNeckLength(Number(event.target.value) || CELL.defaultNeckLengthMm)} />
+              </Field>
+            </div>
+            <Button variant="outline" className="w-full" onClick={bench.useSketchScale}>
+              Use this sketch as the live scale
+            </Button>
           </CardContent>
         </Card>
       </div>
@@ -685,7 +732,7 @@ function BuildPanel() {
               const url = URL.createObjectURL(blob);
               const link = document.createElement("a");
               link.href = url;
-              link.download = "k2-loadcell.cfg";
+              link.download = `${fileSlug}.cfg`;
               link.click();
               URL.revokeObjectURL(url);
             }}
@@ -694,6 +741,151 @@ function BuildPanel() {
           </Button>
         </CardContent>
       </Card>
+      <div className="space-y-3">
+        <div>
+          <h2 className="text-base font-semibold">The K2 plate, as a worked example</h2>
+          <p className="mt-1 max-w-2xl text-sm text-[#5c564c]">
+            38.0 × 24.0 mm, 0.100 in 6061-T6, four BA1000-3AA gauges in a full bridge. The sketch above starts from this plate. A column, button, or other flexure does not need these numbers.
+          </p>
+        </div>
+        <div className="grid gap-4 lg:grid-cols-2">
+          <figure className="overflow-hidden rounded-xl border border-[#e0d8cc] bg-white">
+            <div className="relative aspect-[4/3] w-full">
+              <Image src="/cell/gauges.jpg" alt="Four BA1000-3AA gauges bonded to the flexure arms with Loctite 401, red jumper wires, and a four-conductor cable" fill className="object-cover" sizes="(min-width: 1024px) 50vw, 100vw" />
+            </div>
+            <figcaption className="px-3 py-2 text-xs text-[#5c564c]">Gauges bonded with Loctite 401. All four are on this face, two on each side of the center web.</figcaption>
+          </figure>
+          <figure className="overflow-hidden rounded-xl border border-[#e0d8cc] bg-white">
+            <div className="relative aspect-[4/3] w-full">
+              <Image src="/cell/coated.jpg" alt="The same loadcell after the gauges and wiring were covered in grey Loctite 9460 epoxy" fill className="object-cover" sizes="(min-width: 1024px) 50vw, 100vw" />
+            </div>
+            <figcaption className="px-3 py-2 text-xs text-[#5c564c]">Loctite 9460 over the gauges and the jumper wires. Let it finish curing before you trust a zero.</figcaption>
+          </figure>
+        </div>
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Cut file</CardTitle>
+              <CardDescription>The closed paths inside the outline are the laser cuts: triangular windows, the lower slot, and the mounting holes.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <CellOutline className="w-full rounded-lg border border-[#e4ddd0] bg-[#f6f3ec]" />
+              <a className="text-sm text-[#8a5a32] underline underline-offset-4" href="/cell/NewLoadcell.dxf" download>
+                Download NewLoadcell.dxf
+              </a>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">This bridge</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <BridgeNotes />
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function EnteredScaleForm() {
+  const bench = useBench();
+  const [cpg, setCpg] = useState("");
+  const [tare, setTare] = useState("");
+  return (
+    <div className="space-y-3 rounded-lg border border-[#e4ddd0] bg-[#f7f4ee] p-3">
+      <p className="text-sm text-[#3c3832]">Type a scale you already trust. The simulator and the live grams follow it instead of the leaf sketch.</p>
+      <Field label="Counts per gram">
+        <Input value={cpg} inputMode="decimal" placeholder={bench.countsPerGram !== null ? bench.countsPerGram.toFixed(2) : "e.g. 40"} onChange={(event) => setCpg(event.target.value)} />
+      </Field>
+      <Field label="Tare counts">
+        <Input value={tare} inputMode="decimal" placeholder={bench.tare !== null ? String(Math.round(bench.tare)) : "empty-cell counts"} onChange={(event) => setTare(event.target.value)} />
+      </Field>
+      <Button
+        className="w-full"
+        variant="secondary"
+        onClick={() => bench.applyEnteredScale(cpg.trim() === "" ? Number.NaN : Number(cpg), tare.trim() === "" ? Number.NaN : Number(tare))}
+      >
+        Use this scale
+      </Button>
+    </div>
+  );
+}
+
+function ManualCapture() {
+  const bench = useBench();
+  const [kind, setKind] = useState<Capture["kind"]>("load");
+  const [grams, setGrams] = useState("100");
+  const [counts, setCounts] = useState("");
+  return (
+    <div className="space-y-3 rounded-lg border border-[#e4ddd0] p-3">
+      <p className="text-sm text-[#3c3832]">Add a row by hand. Empty forces the mass to 0 g. Counts are the signed reading after invert, if you use it.</p>
+      <div className="grid gap-3 sm:grid-cols-3">
+        <Field label="Kind">
+          <NativeSelect value={kind} onChange={(value) => setKind(value as Capture["kind"])}>
+            <option value="zero">Empty</option>
+            <option value="load">Load</option>
+            <option value="unload">Unload</option>
+            <option value="repeat">Repeat</option>
+          </NativeSelect>
+        </Field>
+        <Field label="Mass, grams">
+          <Input value={kind === "zero" ? "0" : grams} disabled={kind === "zero"} inputMode="decimal" onChange={(event) => setGrams(event.target.value)} />
+        </Field>
+        <Field label="Counts">
+          <Input value={counts} inputMode="decimal" placeholder="e.g. 5200" onChange={(event) => setCounts(event.target.value)} />
+        </Field>
+      </div>
+      <Button
+        variant="secondary"
+        onClick={() => bench.insertCapture(kind, kind === "zero" ? 0 : Number(grams), counts.trim() === "" ? Number.NaN : Number(counts))}
+      >
+        Add measurement
+      </Button>
+    </div>
+  );
+}
+
+function ManualRange() {
+  const bench = useBench();
+  const [grams, setGrams] = useState("500");
+  const [counts, setCounts] = useState("");
+  const [saturated, setSaturated] = useState(false);
+  const [rms, setRms] = useState("");
+  return (
+    <div className="space-y-3 rounded-lg border border-[#e4ddd0] p-3">
+      <p className="text-sm text-[#3c3832]">Or type a load point and a noise figure. A measured 8 second floor replaces a typed noise rms.</p>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Field label="Mass, grams">
+          <Input value={grams} inputMode="decimal" onChange={(event) => setGrams(event.target.value)} />
+        </Field>
+        <Field label="Counts">
+          <Input value={counts} inputMode="decimal" placeholder="mean counts at that mass" onChange={(event) => setCounts(event.target.value)} />
+        </Field>
+      </div>
+      <label className="flex items-center gap-2 text-sm text-[#3c3832]">
+        <input type="checkbox" checked={saturated} onChange={(event) => setSaturated(event.target.checked)} />
+        ADC was on the rail at this mass
+      </label>
+      <div className="flex flex-wrap gap-2">
+        <Button
+          variant="secondary"
+          onClick={() => bench.insertRangeStep(Number(grams), counts.trim() === "" ? Number.NaN : Number(counts), saturated)}
+        >
+          Add load point
+        </Button>
+      </div>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+        <div className="min-w-0 flex-1">
+          <Field label="Noise rms, counts">
+            <Input value={rms} inputMode="decimal" placeholder="unloaded scatter" onChange={(event) => setRms(event.target.value)} />
+          </Field>
+        </div>
+        <Button variant="outline" onClick={() => bench.useEnteredNoise(rms.trim() === "" ? Number.NaN : Number(rms))}>
+          Use this noise
+        </Button>
+      </div>
     </div>
   );
 }
@@ -723,7 +915,7 @@ function BridgeNotes() {
   );
 }
 
-function CaptureTable({ captures }: { captures: Capture[] }) {
+function CaptureTable({ captures, onRemove }: { captures: Capture[]; onRemove: (id: number) => void }) {
   return (
     <table className="w-full text-left text-sm">
       <thead className="text-xs tracking-wide text-[#6d675e] uppercase">
@@ -731,7 +923,8 @@ function CaptureTable({ captures }: { captures: Capture[] }) {
           <th className="py-2 pr-3 font-medium">Kind</th>
           <th className="py-2 pr-3 font-medium">Mass</th>
           <th className="py-2 pr-3 font-medium">Counts</th>
-          <th className="py-2 font-medium">Scatter</th>
+          <th className="py-2 pr-3 font-medium">Scatter</th>
+          <th className="py-2 font-medium" />
         </tr>
       </thead>
       <tbody>
@@ -740,7 +933,12 @@ function CaptureTable({ captures }: { captures: Capture[] }) {
             <td className="py-2 pr-3 capitalize">{capture.kind}</td>
             <td className="py-2 pr-3 font-mono">{capture.grams} g</td>
             <td className="py-2 pr-3 font-mono">{Math.round(capture.counts)}</td>
-            <td className="py-2 font-mono">{capture.stdev.toFixed(0)}</td>
+            <td className="py-2 pr-3 font-mono">{capture.n <= 1 && capture.stdev === 0 ? "—" : capture.stdev.toFixed(0)}</td>
+            <td className="py-2 text-right">
+              <button type="button" className="text-xs text-[#8a5a32] underline underline-offset-4" onClick={() => onRemove(capture.id)}>
+                Remove
+              </button>
+            </td>
           </tr>
         ))}
       </tbody>

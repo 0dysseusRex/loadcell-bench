@@ -128,6 +128,7 @@ export function frontById(id: string): FrontEnd {
 
 export function printerSnippet(input: {
   front: FrontEnd;
+  cellName?: string;
   gain: number;
   sampleRate: number;
   vref: "internal" | "analog_supply";
@@ -135,6 +136,8 @@ export function printerSnippet(input: {
   tareCounts: number | null;
 }): string {
   const { front } = input;
+  const cellName = (input.cellName ?? "").trim() || "loadcell";
+  const section = cellName.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "") || "loadcell";
   const cpg =
     input.countsPerGram === null
       ? "# counts_per_gram: fill in after the accuracy test"
@@ -145,7 +148,7 @@ export function printerSnippet(input: {
       : `reference_tare_counts: ${Math.round(input.tareCounts)}`;
   const mcu = front.mcuSection;
   if (front.sensor === "ads1220") {
-    return `# K2 loadcell on an FYSETC H36 Combo V2 with a Plimsoll mini ADS1220.
+    return `# ${cellName} on an FYSETC H36 Combo V2 with a Plimsoll mini ADS1220.
 # Bench gain ${input.gain}, ${input.sampleRate} Hz, ${input.vref} reference.
 # Flash the toolboard USB build (STM32G431, 12 MHz, PA11/PA12, startup pin PA2)
 # before pointing Klipper at it. This host and Klipper cannot share the port.
@@ -153,7 +156,7 @@ export function printerSnippet(input: {
 [mcu ${mcu}]
 # serial: /dev/serial/by-id/usb-Klipper_stm32g431xx_XXXXXXXX-if00
 
-[load_cell k2]
+[load_cell ${section}]
 sensor_type: ads1220
 cs_pin: ${mcu}:PA14
 data_ready_pin: ${mcu}:PA1
@@ -177,14 +180,14 @@ ${tare}
     front.id === "alpha-hx717"
       ? "# serial: /dev/serial/by-id/usb-Klipper_stm32f072xb_XXXXXXXX-if00\nrestart_method: command"
       : "# serial: /dev/serial/by-id/usb-Klipper_stm32g431xx_XXXXXXXX-if00";
-  return `# K2 loadcell on a Plimsoll ${front.label}.
+  return `# ${cellName} on a Plimsoll ${front.label}.
 # Bench gain ${gainName}, expected ${input.sampleRate} Hz. The HX717 rate is the solder jumper.
 # This host and Klipper cannot share the USB port.
 
 [mcu ${mcu}]
 ${serialHint}
 
-[load_cell k2]
+[load_cell ${section}]
 sensor_type: hx717
 sclk_pin: ${mcu}:${front.sclk}
 dout_pin: ${mcu}:${front.dout}

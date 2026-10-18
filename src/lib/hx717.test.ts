@@ -45,8 +45,10 @@ test("printer snippets name the right MCU pins", () => {
     gain: 64,
     sampleRate: 330,
     vref: "internal",
+    cellName: "My column cell",
     front: frontById("h36-ads1220"),
   });
+  assert.match(ads, /\[load_cell my_column_cell\]/);
   assert.match(ads, /sensor_type: ads1220/);
   assert.match(ads, /cs_pin: toolhead:PA14/);
   assert.doesNotMatch(ads, /hx717/);

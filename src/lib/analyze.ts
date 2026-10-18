@@ -273,8 +273,13 @@ export function analyzeRange(input: {
   zeroCounts: number | null;
   returnCounts: number | null;
   bestRateHz: number | null;
+  /** A noise figure typed in, instead of a captured trace. */
+  noiseRmsCounts?: number | null;
 }): RangeResult {
-  const noiseRmsCounts = stdev(input.noiseCounts);
+  const noiseRmsCounts =
+    input.noiseRmsCounts != null && Number.isFinite(input.noiseRmsCounts)
+      ? input.noiseRmsCounts
+      : stdev(input.noiseCounts);
   const cpg = input.countsPerGram;
   const noiseRmsGrams = cpg && cpg > 0 ? noiseRmsCounts / cpg : null;
   const resolutionGrams = noiseRmsGrams === null ? null : 3 * noiseRmsGrams;

@@ -5,6 +5,28 @@ import { SimulatorSource } from "./simulator.ts";
 import { estimateScale, CELL } from "./model.ts";
 import type { Sample } from "./analyze.ts";
 
+test("doubling leaf thickness quarters the counts per gram", () => {
+  const shared = {
+    neckWidthMm: 1.6,
+    neckLengthMm: 8,
+    neckCount: 2,
+    gain: 128,
+    vref: "internal" as const,
+  };
+  const base = estimateScale({ ...shared, thicknessMm: 2.54 });
+  const thick = estimateScale({ ...shared, thicknessMm: 5.08 });
+  assert.ok(Math.abs(thick.countsPerGram * 4 - base.countsPerGram) / base.countsPerGram < 0.01);
+});
+
+test("an entered sensitivity replaces the leaf sketch", () => {
+  const sim = new SimulatorSource();
+  sim.setSensitivity(10);
+  const zero = mean(sim.generate(2, 0));
+  const loaded = mean(sim.generate(2, 100));
+  const cpg = (loaded - zero) / 100;
+  assert.ok(Math.abs(cpg - 10) < 1, `got ${cpg}`);
+});
+
 test("a straight calibration fits", () => {
   const points = [0, 100, 200, 500, 1000].map((grams) => ({ grams, counts: 1200 + 40 * grams }));
   const fit = fitLine(points);
