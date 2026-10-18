@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "K2 loadcell bench",
   description:
-    "Stream a Plimsoll mini ADS1220 through a FYSETC H36 Combo V2 and test polling speed, accuracy, and weight range of a 6061-T6 full-bridge loadcell.",
+    "Stream a Plimsoll mini ADS1220, mini HX717, or alpha USB board through Klipper and test polling speed, accuracy, and weight range of a 6061-T6 full-bridge loadcell.",
 };
 
 export default function RootLayout({
