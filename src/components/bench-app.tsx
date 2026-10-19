@@ -3,6 +3,8 @@
 import { useState, type ReactNode } from "react";
 import Image from "next/image";
 import { BenchProvider, useBench, type Capture } from "@/components/bench-context";
+import { HowTo } from "@/components/how-to";
+import { ResultsPage } from "@/components/results-page";
 import { CellOutline } from "@/components/cell-outline";
 import { TraceChart } from "@/components/trace-chart";
 import { Badge } from "@/components/ui/badge";
@@ -25,6 +27,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { printerSnippet } from "@/lib/frontends";
 import { CELL, CELL_PROFILES, GAUGE_PRESETS, MATERIALS, NORMAL_RATES, TURBO_RATES, bendingStiffness, cellProfileById, estimateScale, gaugeById, materialById, rootGridFraction, type BridgeKind } from "@/lib/model";
 import { GOALS } from "@/lib/analyze";
+import { guideStatus, isGuideTab, readyToCompile, type GuideTab } from "@/lib/guide";
 
 const MASS_PRESETS = [20, 50, 100, 200, 500, 1000];
 
@@ -38,10 +41,32 @@ export function BenchApp() {
 
 function BenchShell() {
   const bench = useBench();
+  const [tab, setTab] = useState<GuideTab>("live");
+  const [view, setView] = useState<"bench" | "report">("bench");
+  const compileReady = readyToCompile(
+    guideStatus({
+      cellName: bench.cellName,
+      mode: bench.mode,
+      phase: bench.phase,
+      sampleCount: bench.samples.length,
+      speedRuns: bench.speedResults.length,
+      hasFit: bench.fit !== null,
+      hasRange: bench.rangeResult !== null,
+    }),
+  );
+
+  if (view === "report") {
+    return (
+      <div className="min-h-screen bg-[#f3efe6] text-[#1c1915]">
+        <ResultsPage onBack={() => setView("bench")} />
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[#f3efe6] text-[#1c1915]">
-      <header className="border-b border-[#e0d8cc] bg-[#f7f4ee]">
-        <div className="mx-auto flex max-w-6xl flex-col gap-4 px-4 py-4 sm:px-6 lg:flex-row lg:items-end lg:justify-between">
+      <header data-bench-header className="border-b border-[#e0d8cc] bg-[#f7f4ee]">
+        <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-4 sm:px-6 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <p className="text-[11px] font-medium tracking-[0.16em] text-[#8a5a32] uppercase">
               {bench.cellName.trim() || "Unnamed load cell"}
@@ -54,42 +79,58 @@ function BenchShell() {
           <ConnectBar />
         </div>
       </header>
-      <main className="mx-auto max-w-6xl px-4 py-5 sm:px-6">
-        {bench.error && (
-          <div className="mb-4 rounded-lg border border-[#e7b4a8] bg-[#fff4f0] px-3 py-2 text-sm text-[#8a3324]">
-            {bench.error}
-          </div>
-        )}
-        {bench.phase === "busy" && bench.busyLabel && (
-          <div className="mb-4 rounded-lg border border-[#e4d3b0] bg-[#fff8ec] px-3 py-2 text-sm text-[#6b4e1e]">
-            {bench.busyLabel}
-          </div>
-        )}
-        <Tabs defaultValue="live">
-          <TabsList className="w-full justify-start overflow-x-auto">
-            <TabsTrigger value="live">Live</TabsTrigger>
-            <TabsTrigger value="speed">Speed</TabsTrigger>
-            <TabsTrigger value="accuracy">Accuracy</TabsTrigger>
-            <TabsTrigger value="range">Range</TabsTrigger>
-            <TabsTrigger value="build">Build</TabsTrigger>
-          </TabsList>
-          <TabsContent value="live" className="mt-4">
-            <LivePanel />
-          </TabsContent>
-          <TabsContent value="speed" className="mt-4">
-            <SpeedPanel />
-          </TabsContent>
-          <TabsContent value="accuracy" className="mt-4">
-            <AccuracyPanel />
-          </TabsContent>
-          <TabsContent value="range" className="mt-4">
-            <RangePanel />
-          </TabsContent>
-          <TabsContent value="build" className="mt-4">
-            <BuildPanel />
-          </TabsContent>
-        </Tabs>
-      </main>
+      <div className="mx-auto grid max-w-7xl gap-5 px-4 py-5 sm:px-6 lg:grid-cols-[272px_minmax(0,1fr)] lg:items-start">
+        <HowTo onJump={setTab} onCompile={() => setView("report")} />
+        <main className="min-w-0">
+          {bench.error && (
+            <div className="mb-4 rounded-lg border border-[#e7b4a8] bg-[#fff4f0] px-3 py-2 text-sm text-[#8a3324]">
+              {bench.error}
+            </div>
+          )}
+          {bench.phase === "busy" && bench.busyLabel && (
+            <div className="mb-4 rounded-lg border border-[#e4d3b0] bg-[#fff8ec] px-3 py-2 text-sm text-[#6b4e1e]">
+              {bench.busyLabel}
+            </div>
+          )}
+          {compileReady && (
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[#e0d8cc] bg-[#f7f4ee] px-3 py-2">
+              <p className="text-sm text-[#3f3a33]">Speed, accuracy, and range are in. Compile them into one page.</p>
+              <Button onClick={() => setView("report")}>Compile results</Button>
+            </div>
+          )}
+          <Tabs
+            id="bench-tabs"
+            className="scroll-mt-4"
+            value={tab}
+            onValueChange={(value) => {
+              if (isGuideTab(value)) setTab(value);
+            }}
+          >
+            <TabsList className="w-full justify-start overflow-x-auto">
+              <TabsTrigger value="live">Live</TabsTrigger>
+              <TabsTrigger value="speed">Speed</TabsTrigger>
+              <TabsTrigger value="accuracy">Accuracy</TabsTrigger>
+              <TabsTrigger value="range">Range</TabsTrigger>
+              <TabsTrigger value="build">Build</TabsTrigger>
+            </TabsList>
+            <TabsContent value="live" className="mt-4">
+              <LivePanel />
+            </TabsContent>
+            <TabsContent value="speed" className="mt-4">
+              <SpeedPanel />
+            </TabsContent>
+            <TabsContent value="accuracy" className="mt-4">
+              <AccuracyPanel />
+            </TabsContent>
+            <TabsContent value="range" className="mt-4">
+              <RangePanel />
+            </TabsContent>
+            <TabsContent value="build" className="mt-4">
+              <BuildPanel />
+            </TabsContent>
+          </Tabs>
+        </main>
+      </div>
     </div>
   );
 }

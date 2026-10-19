@@ -36,6 +36,8 @@ Two K2 cells are built in. The redesign is 6061-T6, 0.100 in, four necks, gauges
 
 The gauge card takes BA1000-3AA, a 350 Ω foil, or a custom factor. A half bridge or a quarter bridge scales the output for arms that are completion resistors. A scale you type, or a fit you apply, replaces the sketch in the simulator and on the live grams.
 
+A guide along the left walks through the bench in order: name the cell, connect or use the simulator, watch the live counts, then run speed, accuracy, and range. On a narrow screen that guide sits above the tabs and can be hidden. When those three tests have results, Compile results opens one page in plain language. Print it from the browser if you want a copy.
+
 ## Wire it
 
 Flash the H36 for USB before connecting it here:
