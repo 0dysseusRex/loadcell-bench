@@ -5,7 +5,7 @@
 // calibration.
 
 export const CELL = {
-  name: "K2 loadcell",
+  name: "K2 redesign",
   alloy: "6061-T6",
   thicknessIn: 0.1,
   thicknessMm: 2.54,
@@ -26,10 +26,10 @@ export const CELL = {
   },
   adhesive: "Loctite 401",
   coating: "Loctite 9460",
-  // Necks visible beside the triangular windows. Adjustable in the bench.
+  // Four necks on the redesign, starting sizes from the cut file. Adjustable in the bench.
   defaultNeckWidthMm: 1.6,
   defaultNeckLengthMm: 8,
-  defaultNeckCount: 2,
+  defaultNeckCount: 4,
   // Plimsoll mini ADS1220 analog rail. Replaced by a real calibration.
   assumedExcitationV: 3.3,
   internalRefV: 2.048,
@@ -43,42 +43,42 @@ export type MaterialPreset = {
   note: string;
 };
 
-/** Handbook typicals, not a certificate. Temper moves the yield more than the modulus. */
+/** Alloys load cells are usually cut from. Handbook typicals, not a certificate. */
 export const MATERIALS: MaterialPreset[] = [
   {
     id: "6061-t6",
     name: "6061-T6 aluminum",
     youngMpa: 68900,
     yieldMpa: 276,
-    note: "The K2 plate. Modulus 68.9 GPa, yield 276 MPa.",
+    note: "Common for DIY flexures, and the alloy of this redesign. 68.9 GPa, yield 276 MPa.",
+  },
+  {
+    id: "2024-t3",
+    name: "2024-T3 aluminum",
+    youngMpa: 73100,
+    yieldMpa: 345,
+    note: "The usual alloy in aluminum single-point load cells. About 73.1 GPa, yield 345 MPa.",
   },
   {
     id: "7075-t6",
     name: "7075-T6 aluminum",
     youngMpa: 71700,
     yieldMpa: 503,
-    note: "Slightly stiffer than 6061, with a higher yield.",
-  },
-  {
-    id: "mild-steel",
-    name: "Mild steel",
-    youngMpa: 200000,
-    yieldMpa: 250,
-    note: "About 200 GPa, so the same neck makes roughly a third of the aluminum signal. The yield shown is an A36-class minimum. Cold-drawn bar is stronger.",
+    note: "Higher-strength aluminum flexures. About 71.7 GPa, yield 503 MPa.",
   },
   {
     id: "17-4-h900",
     name: "17-4 PH H900",
     youngMpa: 197000,
     yieldMpa: 1170,
-    note: "A common load-cell stainless. Modulus is near other steels. This yield is the H900 temper; other tempers are softer.",
+    note: "The stainless most commercial load cells are cut from. About 197 GPa. This yield is the H900 temper.",
   },
   {
-    id: "304",
-    name: "304 stainless, annealed",
-    youngMpa: 193000,
-    yieldMpa: 215,
-    note: "Modulus near other steels. Annealed yield is low for a flexure.",
+    id: "alloy-steel",
+    name: "Alloy steel",
+    youngMpa: 200000,
+    yieldMpa: null,
+    note: "Steels used in load cells sit near 200 GPa. The OEM K2 cell is steel; its grade and yield are not published.",
   },
   {
     id: "custom",
@@ -138,6 +138,67 @@ export function gaugeById(id: string): GaugePreset {
   return GAUGE_PRESETS.find((gauge) => gauge.id === id) ?? GAUGE_PRESETS[GAUGE_PRESETS.length - 1];
 }
 
+export type GaugeMount = "same-face" | "back-to-back";
+
+export type CellProfile = {
+  id: string;
+  name: string;
+  note: string;
+  materialId: string;
+  thicknessMm: number;
+  neckCount: number;
+  neckWidthMm: number | null;
+  neckLengthMm: number | null;
+  gaugeId: string;
+  gaugeFactor: number;
+  resistanceOhm: number | null;
+  gridLengthMm: number | null;
+  gridWidthMm: number | null;
+  bridge: BridgeKind;
+  gaugeMount: GaugeMount;
+};
+
+export const CELL_PROFILES: CellProfile[] = [
+  {
+    id: "custom-k2",
+    name: "K2 redesign",
+    note: "Your plate: 6061-T6, 0.100 in, four necks, four BA1000-3AA gauges on one face. Neck width and length start from the cut file.",
+    materialId: "6061-t6",
+    thicknessMm: CELL.thicknessMm,
+    neckCount: 4,
+    neckWidthMm: CELL.defaultNeckWidthMm,
+    neckLengthMm: CELL.defaultNeckLengthMm,
+    gaugeId: "ba1000-3aa",
+    gaugeFactor: CELL.gauge.gaugeFactor,
+    resistanceOhm: CELL.gauge.resistanceOhm,
+    gridLengthMm: CELL.gauge.gridMm[1],
+    gridWidthMm: CELL.gauge.gridMm[0],
+    bridge: "full",
+    gaugeMount: "same-face",
+  },
+  {
+    id: "oem-k2",
+    name: "OEM K2",
+    note: "Creality part 4001010038 is listed as 38 × 23.95 × 3 mm. Steel, two necks, one gauge on each face of each neck. Neck width, neck length, the steel grade, and the gauge model are not published.",
+    materialId: "alloy-steel",
+    thicknessMm: 3,
+    neckCount: 2,
+    neckWidthMm: null,
+    neckLengthMm: null,
+    gaugeId: "custom",
+    gaugeFactor: 2,
+    resistanceOhm: null,
+    gridLengthMm: null,
+    gridWidthMm: null,
+    bridge: "full",
+    gaugeMount: "back-to-back",
+  },
+];
+
+export function cellProfileById(id: string): CellProfile {
+  return CELL_PROFILES.find((profile) => profile.id === id) ?? CELL_PROFILES[0];
+}
+
 export type BridgeKind = "full" | "half" | "quarter";
 
 /** Relative to four active arms that each see the same strain magnitude. */
@@ -166,7 +227,7 @@ export type ScaleInput = {
   vref: "internal" | "analog_supply";
   thicknessMm?: number;
   youngMpa?: number;
-  yieldMpa?: number;
+  yieldMpa?: number | null;
   gaugeFactor?: number;
   excitationV?: number;
   /** Share of the peak surface strain the grid averages. 1 uses the peak. */
@@ -175,19 +236,63 @@ export type ScaleInput = {
 };
 
 export type ScaleEstimate = {
-  yieldNewtons: number;
-  yieldKg: number;
+  yieldNewtons: number | null;
+  yieldKg: number | null;
   microstrainPerGram: number;
   countsPerGram: number;
   fullScaleGrams: number;
 };
+
+export type BendingInput = {
+  youngMpa: number;
+  yieldMpa?: number | null;
+  thicknessMm: number;
+  neckWidthMm: number;
+  neckLengthMm: number;
+  neckCount: number;
+};
+
+export type BendingResult = {
+  youngGpa: number;
+  /** E·I of the necks together, in N·m². */
+  flexuralRigidityNm2: number;
+  /** Guided-leaf spring rate, newtons per millimeter of deflection. */
+  stiffnessNPerMm: number;
+  /** Kilograms of load per millimeter of deflection. */
+  stiffnessKgPerMm: number;
+  yieldKg: number | null;
+};
+
+/**
+ * Guided leaves in parallel. Stiffness is E × count × width × thickness³ / length³.
+ * Returns null until thickness and the neck proportions are all positive.
+ */
+export function bendingStiffness(input: BendingInput): BendingResult | null {
+  const E = input.youngMpa;
+  const t = input.thicknessMm;
+  const w = input.neckWidthMm;
+  const L = input.neckLengthMm;
+  const n = input.neckCount;
+  if (!(E > 0) || !(t > 0) || !(w > 0) || !(L > 0) || !(n > 0)) return null;
+  const inertia = (n * w * t * t * t) / 12;
+  const stiffnessNPerMm = (E * n * w * t * t * t) / (L * L * L);
+  const Sy = input.yieldMpa;
+  const yieldNewtons = Sy != null && Sy > 0 ? (Sy * n * w * t * t) / (3 * L) : null;
+  return {
+    youngGpa: E / 1000,
+    flexuralRigidityNm2: (E * inertia) / 1e6,
+    stiffnessNPerMm,
+    stiffnessKgPerMm: stiffnessNPerMm / 9.80665,
+    yieldKg: yieldNewtons == null ? null : yieldNewtons / 9.80665,
+  };
+}
 
 export function estimateScale(input: ScaleInput): ScaleEstimate {
   const t = input.thicknessMm ?? CELL.thicknessMm;
   const b = input.neckWidthMm * input.neckCount;
   const L = input.neckLengthMm;
   const E = input.youngMpa ?? CELL.youngMpa;
-  const Sy = input.yieldMpa ?? CELL.yieldMpa;
+  const Sy = input.yieldMpa === undefined ? CELL.yieldMpa : input.yieldMpa;
   const gf = input.gaugeFactor ?? CELL.gauge.gaugeFactor;
   const vex = input.excitationV ?? CELL.assumedExcitationV;
   const strainFraction = input.strainFraction ?? 1;
@@ -196,7 +301,7 @@ export function estimateScale(input: ScaleInput): ScaleEstimate {
   // sigma = F * 3 * L / (b * t^2) for the whole load shared by the necks.
   // That stress is the peak. strainFraction is the share of it the grid averages.
   // A half or quarter bridge uses completion resistors on the idle arms.
-  const yieldNewtons = (Sy * b * t * t) / (3 * L);
+  const yieldNewtons = Sy == null || Sy <= 0 ? null : (Sy * b * t * t) / (3 * L);
   const sigmaPerGram = (0.00980665 * 3 * L) / (b * t * t);
   const microstrainPerGram = (sigmaPerGram / E) * 1e6 * strainFraction;
   const ratioPerGram = gf * (sigmaPerGram / E) * strainFraction * arms;
@@ -208,7 +313,7 @@ export function estimateScale(input: ScaleInput): ScaleEstimate {
   const fullScaleGrams = countsPerGram > 0 ? (fullScaleRatio / ratioPerGram) : 0;
   return {
     yieldNewtons,
-    yieldKg: yieldNewtons / 9.80665,
+    yieldKg: yieldNewtons == null ? null : yieldNewtons / 9.80665,
     microstrainPerGram,
     countsPerGram,
     fullScaleGrams,

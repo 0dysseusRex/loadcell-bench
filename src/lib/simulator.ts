@@ -8,7 +8,7 @@ export type SimOptions = StreamOptions & {
   neckCount: number;
   thicknessMm?: number;
   youngMpa?: number;
-  yieldMpa?: number;
+  yieldMpa?: number | null;
   gaugeFactor?: number;
   strainFraction?: number;
   bridge?: BridgeKind;
@@ -46,6 +46,8 @@ export class SimulatorSource {
   private creepCarry = 0;
   /** When set, the load signal uses this scale instead of the leaf sketch. */
   private sensitivity: number | null = null;
+  /** False when the selected cell has no neck size, so the sketch is not invented. */
+  private sketchReady = true;
   private rng = mulberry32(0x4b32);
   overflows = 0;
   gaps = 0;
@@ -77,17 +79,24 @@ export class SimulatorSource {
     this.stopClock();
   }
 
-  setGeometry(geometry: {
-    neckWidthMm: number;
-    neckLengthMm: number;
-    neckCount: number;
-    thicknessMm?: number;
-    youngMpa?: number;
-    yieldMpa?: number;
-    gaugeFactor?: number;
-    strainFraction?: number;
-    bridge?: BridgeKind;
-  }) {
+  setGeometry(
+    geometry: {
+      neckWidthMm: number;
+      neckLengthMm: number;
+      neckCount: number;
+      thicknessMm?: number;
+      youngMpa?: number;
+      yieldMpa?: number | null;
+      gaugeFactor?: number;
+      strainFraction?: number;
+      bridge?: BridgeKind;
+    } | null,
+  ) {
+    if (!geometry || !(geometry.neckWidthMm > 0) || !(geometry.neckLengthMm > 0) || !(geometry.neckCount > 0)) {
+      this.sketchReady = false;
+      return;
+    }
+    this.sketchReady = true;
     this.opts = { ...this.opts, ...geometry };
   }
 
@@ -174,8 +183,8 @@ export class SimulatorSource {
   }
 
   private elasticCounts(grams: number): number {
-    const scale = estimateScale(this.opts);
-    return this.bridgeRatio(grams, this.sensitivity ?? scale.countsPerGram);
+    const fromSketch = this.sketchReady ? estimateScale(this.opts).countsPerGram : 0;
+    return this.bridgeRatio(grams, this.sensitivity ?? fromSketch);
   }
 
   private offsetCounts(): number {

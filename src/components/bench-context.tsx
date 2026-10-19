@@ -33,7 +33,7 @@ import {
 import { isSaturated } from "@/lib/ads1220";
 import { H36Session } from "@/lib/klipper/session";
 import { FRONTS, frontById, type FrontEnd } from "@/lib/frontends";
-import { CELL, estimateScale, gaugeById, materialById, rootGridFraction, type BridgeKind } from "@/lib/model";
+import { CELL, cellProfileById, estimateScale, gaugeById, materialById, rootGridFraction, type BridgeKind, type GaugeMount } from "@/lib/model";
 import { SimulatorSource } from "@/lib/simulator";
 
 export type Phase = "idle" | "connecting" | "ready" | "streaming" | "busy";
@@ -83,10 +83,10 @@ type BenchApi = {
   scaleSource: ScaleSource;
   load: number;
   setLoad: (grams: number) => void;
-  neckWidth: number;
-  setNeckWidth: (mm: number) => void;
-  neckLength: number;
-  setNeckLength: (mm: number) => void;
+  neckWidth: number | null;
+  setNeckWidth: (mm: number | null) => void;
+  neckLength: number | null;
+  setNeckLength: (mm: number | null) => void;
   neckCount: number;
   setNeckCount: (count: number) => void;
   cellName: string;
@@ -95,8 +95,11 @@ type BenchApi = {
   setThicknessMm: (mm: number) => void;
   youngMpa: number;
   setYoungMpa: (mpa: number) => void;
-  yieldMpa: number;
-  setYieldMpa: (mpa: number) => void;
+  yieldMpa: number | null;
+  setYieldMpa: (mpa: number | null) => void;
+  cellProfileId: string;
+  setCellProfileId: (id: string) => void;
+  gaugeMount: GaugeMount;
   gaugeFactor: number;
   setGaugeFactor: (factor: number) => void;
   materialId: string;
@@ -197,15 +200,17 @@ export function BenchProvider({ children }: { children: ReactNode }) {
   const [countsPerGram, setCountsPerGram] = useState<number | null>(null);
   const [scaleSource, setScaleSource] = useState<ScaleSource>("none");
   const [load, setLoadState] = useState(0);
-  const [neckWidth, setNeckWidthState] = useState(CELL.defaultNeckWidthMm);
-  const [neckLength, setNeckLengthState] = useState(CELL.defaultNeckLengthMm);
+  const [neckWidth, setNeckWidthState] = useState<number | null>(CELL.defaultNeckWidthMm);
+  const [neckLength, setNeckLengthState] = useState<number | null>(CELL.defaultNeckLengthMm);
   const [neckCount, setNeckCountState] = useState(CELL.defaultNeckCount);
   const [cellName, setCellName] = useState(CELL.name);
   const [thicknessMm, setThicknessMm] = useState(CELL.thicknessMm);
   const [youngMpa, setYoungMpa] = useState(CELL.youngMpa);
-  const [yieldMpa, setYieldMpa] = useState(CELL.yieldMpa);
+  const [yieldMpa, setYieldMpa] = useState<number | null>(CELL.yieldMpa);
   const [gaugeFactor, setGaugeFactor] = useState(CELL.gauge.gaugeFactor);
   const [materialId, setMaterialIdState] = useState("6061-t6");
+  const [cellProfileId, setCellProfileId] = useState("custom-k2");
+  const [gaugeMount, setGaugeMount] = useState<GaugeMount>("same-face");
   const [gaugeId, setGaugeIdState] = useState("ba1000-3aa");
   const [resistanceOhm, setResistanceOhm] = useState<number | null>(CELL.gauge.resistanceOhm);
   const [gridLengthMm, setGridLengthMm] = useState<number | null>(CELL.gauge.gridMm[1]);
@@ -273,8 +278,9 @@ export function BenchProvider({ children }: { children: ReactNode }) {
     setWebSerial("serial" in navigator);
   }, []);
 
-  const geometry = useMemo(
-    () => ({
+  const geometry = useMemo(() => {
+    if (neckWidth == null || neckLength == null || !(neckWidth > 0) || !(neckLength > 0)) return null;
+    return {
       neckWidthMm: neckWidth,
       neckLengthMm: neckLength,
       neckCount,
@@ -284,22 +290,25 @@ export function BenchProvider({ children }: { children: ReactNode }) {
       gaugeFactor,
       strainFraction,
       bridge,
-    }),
-    [neckWidth, neckLength, neckCount, thicknessMm, youngMpa, yieldMpa, gaugeFactor, strainFraction, bridge],
-  );
+    };
+  }, [neckWidth, neckLength, neckCount, thicknessMm, youngMpa, yieldMpa, gaugeFactor, strainFraction, bridge]);
   const geometryRef = useRef(geometry);
   geometryRef.current = geometry;
+  const cellProfileRef = useRef(cellProfileId);
+  cellProfileRef.current = cellProfileId;
   const cpgRef = useRef(countsPerGram);
   cpgRef.current = countsPerGram;
 
   const sketch = useMemo(
-    () => estimateScale({ ...geometry, gain, vref }),
+    () => (geometry ? estimateScale({ ...geometry, gain, vref }) : null),
     [geometry, gain, vref],
   );
 
   useEffect(() => {
     simRef.current?.setGeometry(geometry);
-    if (scaleSource === "sketch") setCountsPerGram(sketch.countsPerGram);
+    if (scaleSource !== "sketch") return;
+    if (sketch) setCountsPerGram(sketch.countsPerGram);
+    else setCountsPerGram(null);
   }, [geometry, sketch, scaleSource]);
 
   useEffect(() => {
@@ -367,19 +376,29 @@ export function BenchProvider({ children }: { children: ReactNode }) {
       setPhase("ready");
       setError(null);
       const keepScale = scaleSourceRef.current === "entered" || scaleSourceRef.current === "calibration";
+      const ready = geometryRef.current;
       if (!keepScale) {
-        setScaleSource("sketch");
         setTare(null);
-        const cpg = estimateScale({ ...geometryRef.current, gain: gainRef.current, vref: vrefRef.current }).countsPerGram;
-        setCountsPerGram(cpg);
-        sim.setSensitivity(null);
+        if (!ready) {
+          setScaleSource("none");
+          setCountsPerGram(null);
+          sim.setSensitivity(null);
+        } else {
+          setScaleSource("sketch");
+          const cpg = estimateScale({ ...ready, gain: gainRef.current, vref: vrefRef.current }).countsPerGram;
+          setCountsPerGram(cpg);
+          sim.setSensitivity(null);
+        }
       } else if (cpgRef.current) {
         sim.setSensitivity(cpgRef.current);
       }
+      const profileName = cellProfileById(cellProfileRef.current).name;
       pushLog(
         keepScale
           ? `Simulator is on for ${frontRef.current.label}, using the scale you entered.`
-          : `Simulator is on for ${frontRef.current.label}. Grams use the leaf sketch until you enter a scale or run Accuracy.`,
+          : ready
+            ? `Simulator is on for ${frontRef.current.label}. Grams use the ${profileName} leaf sketch until you enter a scale or run Accuracy.`
+            : `Simulator is on for ${frontRef.current.label}. ${profileName} has no published neck size, so grams wait for a neck width and length or a scale you type.`,
       );
     })();
   }, [disconnect, pushLog]);
@@ -762,8 +781,13 @@ export function BenchProvider({ children }: { children: ReactNode }) {
   }, [pushLog]);
 
   const useSketchScale = useCallback(() => {
+    const ready = geometryRef.current;
+    if (!ready) {
+      setError("Type a neck width and length. The OEM listing does not include them.");
+      return;
+    }
     const cpg = estimateScale({
-      ...geometryRef.current,
+      ...ready,
       gain: gainRef.current,
       vref: vrefRef.current,
     }).countsPerGram;
@@ -981,10 +1005,18 @@ export function BenchProvider({ children }: { children: ReactNode }) {
     },
     neckWidth,
     setNeckWidth: (mm) => {
+      if (mm === null) {
+        setNeckWidthState(null);
+        return;
+      }
       if (Number.isFinite(mm) && mm > 0) setNeckWidthState(mm);
     },
     neckLength,
     setNeckLength: (mm) => {
+      if (mm === null) {
+        setNeckLengthState(null);
+        return;
+      }
       if (Number.isFinite(mm) && mm > 0) setNeckLengthState(mm);
     },
     neckCount,
@@ -1006,11 +1038,40 @@ export function BenchProvider({ children }: { children: ReactNode }) {
     },
     yieldMpa,
     setYieldMpa: (mpa) => {
+      if (mpa === null) {
+        setYieldMpa(null);
+        setMaterialIdState("custom");
+        return;
+      }
       if (Number.isFinite(mpa) && mpa > 0) {
         setYieldMpa(mpa);
         setMaterialIdState("custom");
       }
     },
+    cellProfileId,
+    setCellProfileId: (id) => {
+      const profile = cellProfileById(id);
+      const material = materialById(profile.materialId);
+      setCellProfileId(profile.id);
+      cellProfileRef.current = profile.id;
+      setCellName(profile.name);
+      setMaterialIdState(profile.materialId);
+      if (material.youngMpa != null) setYoungMpa(material.youngMpa);
+      setYieldMpa(material.yieldMpa);
+      setThicknessMm(profile.thicknessMm);
+      setNeckCountState(profile.neckCount);
+      setNeckWidthState(profile.neckWidthMm);
+      setNeckLengthState(profile.neckLengthMm);
+      setGaugeIdState(profile.gaugeId);
+      setGaugeFactor(profile.gaugeFactor);
+      setResistanceOhm(profile.resistanceOhm);
+      setGridLengthMm(profile.gridLengthMm);
+      setGridWidthMm(profile.gridWidthMm);
+      setBridge(profile.bridge);
+      setGaugeMount(profile.gaugeMount);
+      setStrainFractionState(1);
+    },
+    gaugeMount,
     gaugeFactor,
     setGaugeFactor: (factor) => {
       if (Number.isFinite(factor) && factor > 0) {
@@ -1023,7 +1084,7 @@ export function BenchProvider({ children }: { children: ReactNode }) {
       const material = materialById(id);
       setMaterialIdState(material.id);
       if (material.youngMpa != null) setYoungMpa(material.youngMpa);
-      if (material.yieldMpa != null) setYieldMpa(material.yieldMpa);
+      setYieldMpa(material.yieldMpa);
     },
     gaugeId,
     setGaugeId: (id) => {
@@ -1078,7 +1139,7 @@ export function BenchProvider({ children }: { children: ReactNode }) {
       if (Number.isFinite(fraction) && fraction > 0 && fraction <= 1) setStrainFractionState(fraction);
     },
     applyRootGridFraction: () => {
-      const fraction = rootGridFraction(gridLengthMm ?? 0, neckLength);
+      const fraction = rootGridFraction(gridLengthMm ?? 0, neckLength ?? 0);
       if (fraction === null) {
         setError("This grid is longer than half the neck, so the average depends on where you bond it. Type the share of the peak strain it sees.");
         return;

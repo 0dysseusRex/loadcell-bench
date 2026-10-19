@@ -30,7 +30,11 @@ Open [http://127.0.0.1:4471](http://127.0.0.1:4471).
 - **Accuracy.** Capture the empty cell and known masses, or type mass and counts from a notebook. The fit is counts = offset + counts-per-gram × mass. Unload the same masses for hysteresis, repeat one mass for scatter, and hold for 30 seconds to see adhesive creep.
 - **Range.** Eight seconds unloaded for the noise floor, or a noise rms you type in counts. Then step the load until the ADC saturates or the zero does not come back. A rated capacity on the Build tab is the ceiling you set; it does not replace the return-to-zero check.
 
-The Build tab names the cell and takes a counts-per-gram and tare. The optional leaf sketch has a material list (6061-T6, 7075-T6, mild steel, 17-4 PH H900, annealed 304, or numbers you type) and a gauge list (BA1000-3AA, a 350 Ω foil, or a custom gauge factor, resistance, and grid size). A half bridge or a quarter bridge scales the output for the arms that are completion resistors. The share-of-peak field is how much of the root strain the grid averages; it stays at 1 until you set it. The sketch starts from the K2 plate and is only a starting scale. A scale you type, or a fit you apply, replaces it in the simulator and on the live grams. The simulator adds offset, noise, and creep on top of whichever scale is active. It is there to learn the workflow. It is not a measurement of your cell.
+The Build tab has a bending calculator for the alloys load cells are usually cut from: 6061-T6, 2024-T3, 7075-T6, 17-4 PH H900, and alloy steel. You give it thickness and the neck width, length, and count. It reports Young's modulus, guided-leaf stiffness, and a yield load when the yield is known.
+
+Two K2 cells are built in. The redesign is 6061-T6, 0.100 in, four necks, gauges on one face, and it is the simulator's starting scale. The OEM part (4001010038) is steel, 3 mm thick, two necks, with a gauge on each face of each neck. Its listing gives 38 × 23.95 mm and does not give neck width, neck length, or the gauge, so the simulator does not invent a scale for it until you type those necks or a counts-per-gram.
+
+The gauge card takes BA1000-3AA, a 350 Ω foil, or a custom factor. A half bridge or a quarter bridge scales the output for arms that are completion resistors. A scale you type, or a fit you apply, replaces the sketch in the simulator and on the live grams.
 
 ## Wire it
 

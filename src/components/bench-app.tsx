@@ -23,7 +23,7 @@ import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { printerSnippet } from "@/lib/frontends";
-import { CELL, GAUGE_PRESETS, MATERIALS, NORMAL_RATES, TURBO_RATES, estimateScale, gaugeById, materialById, rootGridFraction, type BridgeKind } from "@/lib/model";
+import { CELL, CELL_PROFILES, GAUGE_PRESETS, MATERIALS, NORMAL_RATES, TURBO_RATES, bendingStiffness, cellProfileById, estimateScale, gaugeById, materialById, rootGridFraction, type BridgeKind } from "@/lib/model";
 import { GOALS } from "@/lib/analyze";
 
 const MASS_PRESETS = [20, 50, 100, 200, 500, 1000];
@@ -514,19 +514,22 @@ function AccuracyPanel() {
 
 function RangePanel() {
   const bench = useBench();
-  const sketch = estimateScale({
-    neckWidthMm: bench.neckWidth,
-    neckLengthMm: bench.neckLength,
-    neckCount: bench.neckCount,
-    thicknessMm: bench.thicknessMm,
-    youngMpa: bench.youngMpa,
-    yieldMpa: bench.yieldMpa,
-    gaugeFactor: bench.gaugeFactor,
-    strainFraction: bench.strainFraction,
-    bridge: bench.bridge,
-    gain: bench.gain,
-    vref: bench.vref,
-  });
+  const sketch =
+    bench.neckWidth != null && bench.neckLength != null
+      ? estimateScale({
+          neckWidthMm: bench.neckWidth,
+          neckLengthMm: bench.neckLength,
+          neckCount: bench.neckCount,
+          thicknessMm: bench.thicknessMm,
+          youngMpa: bench.youngMpa,
+          yieldMpa: bench.yieldMpa,
+          gaugeFactor: bench.gaugeFactor,
+          strainFraction: bench.strainFraction,
+          bridge: bench.bridge,
+          gain: bench.gain,
+          vref: bench.vref,
+        })
+      : null;
   const overRated =
     bench.ratedGrams !== null && bench.rangeSteps.some((step) => step.grams > bench.ratedGrams!);
   return (
@@ -627,9 +630,11 @@ function RangePanel() {
           {bench.noiseRmsEntered !== null && (
             <p className="text-xs text-[#6d675e]">Noise rms is the {bench.noiseRmsEntered.toFixed(1)} counts you typed. Measuring the floor replaces it.</p>
           )}
-          <p className="text-xs text-[#6d675e]">
-            Optional leaf sketch in {materialById(bench.materialId).name}, {bench.neckCount} necks {bench.neckWidth.toFixed(1)} mm by {bench.neckLength.toFixed(0)} mm, {bench.thicknessMm.toFixed(2)} mm thick: about {sketch.yieldKg.toFixed(1)} kg before the material yields. That figure is only a ceiling for a leaf flexure.
-          </p>
+          {sketch?.yieldKg != null && bench.neckWidth != null && bench.neckLength != null && (
+            <p className="text-xs text-[#6d675e]">
+              Optional leaf sketch in {materialById(bench.materialId).name}, {bench.neckCount} necks {bench.neckWidth.toFixed(1)} mm by {bench.neckLength.toFixed(0)} mm, {bench.thicknessMm.toFixed(2)} mm thick: about {sketch.yieldKg.toFixed(1)} kg before the material yields. That figure is only a ceiling for a leaf flexure.
+            </p>
+          )}
         </CardContent>
       </Card>
     </div>
@@ -651,6 +656,7 @@ function BuildPanel() {
   const fileSlug = bench.cellName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "loadcell";
   return (
     <div className="space-y-4">
+      <BendingCalculator />
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader>
@@ -678,22 +684,14 @@ function BuildPanel() {
         </Card>
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Optional leaf sketch</CardTitle>
+            <CardTitle className="text-base">Gauge on that flexure</CardTitle>
             <CardDescription>
-              Out-of-plane bending of the gauged necks. Choose the alloy and the foil; the numbers start as the K2 plate. Use the sketch only for this kind of flexure. A typed scale replaces it.
+              {bench.gaugeMount === "back-to-back"
+                ? "Two gauges on each neck, one on each face. The factor below is an assumption until the OEM gauge is identified."
+                : "Four gauges on one face, one neck each. The bending calculator supplies the alloy and the neck size."}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            <Field label="Material">
-              <NativeSelect value={bench.materialId} onChange={bench.setMaterialId}>
-                {MATERIALS.map((material) => (
-                  <option key={material.id} value={material.id}>
-                    {material.name}
-                  </option>
-                ))}
-              </NativeSelect>
-            </Field>
-            <p className="text-xs text-[#5c564c]">{materialById(bench.materialId).note}</p>
             <Field label="Strain gauge">
               <NativeSelect value={bench.gaugeId} onChange={bench.setGaugeId}>
                 {GAUGE_PRESETS.map((gauge) => (
@@ -712,15 +710,6 @@ function BuildPanel() {
               </NativeSelect>
             </Field>
             <div className="grid gap-3 sm:grid-cols-2">
-              <Field label="Thickness, mm">
-                <Input type="number" step="0.01" min={0.2} value={bench.thicknessMm} onChange={(event) => bench.setThicknessMm(Number(event.target.value) || CELL.thicknessMm)} />
-              </Field>
-              <Field label="Young's modulus, MPa">
-                <Input type="number" step="100" min={1} value={bench.youngMpa} onChange={(event) => bench.setYoungMpa(Number(event.target.value) || CELL.youngMpa)} />
-              </Field>
-              <Field label="Yield strength, MPa">
-                <Input type="number" step="1" min={1} value={bench.yieldMpa} onChange={(event) => bench.setYieldMpa(Number(event.target.value) || CELL.yieldMpa)} />
-              </Field>
               <Field label="Gauge factor">
                 <Input type="number" step="0.01" min={0.1} value={bench.gaugeFactor} onChange={(event) => bench.setGaugeFactor(Number(event.target.value) || CELL.gauge.gaugeFactor)} />
               </Field>
@@ -756,20 +745,11 @@ function BuildPanel() {
               <Field label="Share of peak strain">
                 <Input type="number" step="0.05" min={0.05} max={1} value={bench.strainFraction} onChange={(event) => bench.setStrainFraction(Number(event.target.value) || 1)} />
               </Field>
-              <Field label="Neck count">
-                <Input type="number" step="1" min={1} value={bench.neckCount} onChange={(event) => bench.setNeckCount(Number(event.target.value) || CELL.defaultNeckCount)} />
-              </Field>
-              <Field label="Neck width, mm">
-                <Input type="number" step="0.1" min={0.4} value={bench.neckWidth} onChange={(event) => bench.setNeckWidth(Number(event.target.value) || CELL.defaultNeckWidthMm)} />
-              </Field>
-              <Field label="Neck length, mm">
-                <Input type="number" step="0.5" min={2} value={bench.neckLength} onChange={(event) => bench.setNeckLength(Number(event.target.value) || CELL.defaultNeckLengthMm)} />
-              </Field>
             </div>
             <p className="text-xs text-[#5c564c]">
-              {rootGridFraction(bench.gridLengthMm ?? 0, bench.neckLength) === null
-                ? "The grid is longer than half the neck, or its length is blank. The sketch uses the peak strain until you type the share the foil actually averages."
-                : `A grid this long, bonded at the root, averages about ${((rootGridFraction(bench.gridLengthMm ?? 0, bench.neckLength) ?? 1) * 100).toFixed(0)}% of the peak.`}
+              {rootGridFraction(bench.gridLengthMm ?? 0, bench.neckLength ?? 0) === null
+                ? "The grid is longer than half the neck, or a length is blank. The sketch uses the peak strain until you type the share the foil actually averages."
+                : `A grid this long, bonded at the root, averages about ${((rootGridFraction(bench.gridLengthMm ?? 0, bench.neckLength ?? 0) ?? 1) * 100).toFixed(0)}% of the peak.`}
               {" "}Resistance does not change counts per gram. It sets how warm the foil gets at a given excitation.
             </p>
             <SketchPreview />
@@ -818,7 +798,7 @@ function BuildPanel() {
         <div>
           <h2 className="text-base font-semibold">The K2 plate, as a worked example</h2>
           <p className="mt-1 max-w-2xl text-sm text-[#5c564c]">
-            38.0 × 24.0 mm, 0.100 in 6061-T6, four BA1000-3AA gauges in a full bridge. The sketch above starts from this plate. A column, button, or other flexure does not need these numbers.
+            38.0 × 24.0 mm, 0.100 in 6061-T6, four necks, four BA1000-3AA gauges on one face. The OEM cell is a different part: steel, two necks, gauges back to back, listed as 38 × 23.95 × 3 mm. Its neck size is not published.
           </p>
         </div>
         <div className="grid gap-4 lg:grid-cols-2">
@@ -826,7 +806,7 @@ function BuildPanel() {
             <div className="relative aspect-[4/3] w-full">
               <Image src="/cell/gauges.jpg" alt="Four BA1000-3AA gauges bonded to the flexure arms with Loctite 401, red jumper wires, and a four-conductor cable" fill className="object-cover" sizes="(min-width: 1024px) 50vw, 100vw" />
             </div>
-            <figcaption className="px-3 py-2 text-xs text-[#5c564c]">Gauges bonded with Loctite 401. All four are on this face, two on each side of the center web.</figcaption>
+            <figcaption className="px-3 py-2 text-xs text-[#5c564c]">Gauges bonded with Loctite 401. All four are on this face of the four-neck redesign.</figcaption>
           </figure>
           <figure className="overflow-hidden rounded-xl border border-[#e0d8cc] bg-white">
             <div className="relative aspect-[4/3] w-full">
@@ -862,8 +842,109 @@ function BuildPanel() {
   );
 }
 
+function BendingCalculator() {
+  const bench = useBench();
+  const bend =
+    bench.neckWidth != null && bench.neckLength != null
+      ? bendingStiffness({
+          youngMpa: bench.youngMpa,
+          yieldMpa: bench.yieldMpa,
+          thicknessMm: bench.thicknessMm,
+          neckWidthMm: bench.neckWidth,
+          neckLengthMm: bench.neckLength,
+          neckCount: bench.neckCount,
+        })
+      : null;
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Bending calculator</CardTitle>
+        <CardDescription>
+          Guided necks bending out of the plate. Pick a load-cell alloy, the thickness, and the neck size. Stiffness is E × count × width × thickness³ / length³.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="flex flex-col gap-2 sm:flex-row">
+          {CELL_PROFILES.map((profile) => (
+            <Button
+              key={profile.id}
+              variant={bench.cellProfileId === profile.id ? "default" : "outline"}
+              className="flex-1"
+              onClick={() => bench.setCellProfileId(profile.id)}
+            >
+              {profile.name}
+            </Button>
+          ))}
+        </div>
+        <p className="text-xs text-[#5c564c]">{cellProfileById(bench.cellProfileId).note}</p>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <Field label="Material">
+            <NativeSelect value={bench.materialId} onChange={bench.setMaterialId}>
+              {MATERIALS.map((material) => (
+                <option key={material.id} value={material.id}>
+                  {material.name}
+                </option>
+              ))}
+            </NativeSelect>
+          </Field>
+          <Field label="Thickness, mm">
+            <Input type="number" step="0.01" min={0.2} value={bench.thicknessMm} onChange={(event) => bench.setThicknessMm(Number(event.target.value) || CELL.thicknessMm)} />
+          </Field>
+          <Field label="Neck count">
+            <Input type="number" step="1" min={1} value={bench.neckCount} onChange={(event) => bench.setNeckCount(Number(event.target.value) || CELL.defaultNeckCount)} />
+          </Field>
+          <Field label="Neck width, mm">
+            <Input
+              type="number"
+              step="0.1"
+              min={0.2}
+              placeholder="unknown"
+              value={bench.neckWidth ?? ""}
+              onChange={(event) => bench.setNeckWidth(event.target.value === "" ? null : Number(event.target.value))}
+            />
+          </Field>
+          <Field label="Neck length, mm">
+            <Input
+              type="number"
+              step="0.5"
+              min={0.5}
+              placeholder="unknown"
+              value={bench.neckLength ?? ""}
+              onChange={(event) => bench.setNeckLength(event.target.value === "" ? null : Number(event.target.value))}
+            />
+          </Field>
+          <Field label="Yield strength, MPa">
+            <Input
+              type="number"
+              step="1"
+              min={1}
+              placeholder="unknown"
+              value={bench.yieldMpa ?? ""}
+              onChange={(event) => bench.setYieldMpa(event.target.value === "" ? null : Number(event.target.value))}
+            />
+          </Field>
+        </div>
+        <p className="text-xs text-[#5c564c]">{materialById(bench.materialId).note}</p>
+        {bend ? (
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <Stat label="Young's modulus" value={`${bend.youngGpa.toFixed(1)} GPa`} />
+            <Stat label="Bending stiffness" value={`${bend.stiffnessKgPerMm.toFixed(0)} kg/mm`} />
+            <Stat label="Flexural rigidity" value={`${bend.flexuralRigidityNm2.toFixed(3)} N·m²`} />
+            <Stat label="Yield load" value={bend.yieldKg == null ? "Needs a yield" : `${bend.yieldKg.toFixed(1)} kg`} />
+          </div>
+        ) : (
+          <p className="text-sm text-[#5c564c]">Neck width and length are blank, so the stiffness is not invented. Type them from a measurement.</p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function SketchPreview() {
   const bench = useBench();
+  if (bench.neckWidth == null || bench.neckLength == null) {
+    return <p className="text-sm text-[#5c564c]">The leaf scale waits for a neck width and length.</p>;
+  }
   const sketch = estimateScale({
     neckWidthMm: bench.neckWidth,
     neckLengthMm: bench.neckLength,
@@ -879,7 +960,8 @@ function SketchPreview() {
   });
   return (
     <p className="font-mono text-sm tabular-nums text-[#3c3832]">
-      Sketch {sketch.countsPerGram.toFixed(1)} ct/g at gain {bench.gain}. Yield about {sketch.yieldKg.toFixed(1)} kg.
+      Sketch {sketch.countsPerGram.toFixed(1)} ct/g at gain {bench.gain}.
+      {sketch.yieldKg == null ? " Yield is not set." : ` Yield about ${sketch.yieldKg.toFixed(1)} kg.`}
     </p>
   );
 }

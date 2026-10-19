@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { analyzeRate, fitLine, hysteresisOf, judgeAccuracy, analyzeRange, rollingRate, windowDrift } from "./analyze.ts";
 import { SimulatorSource } from "./simulator.ts";
-import { estimateScale, rootGridFraction, CELL } from "./model.ts";
+import { bendingStiffness, estimateScale, rootGridFraction, CELL } from "./model.ts";
 import type { Sample } from "./analyze.ts";
 
 test("steel modulus lowers counts in proportion to stiffness", () => {
@@ -19,6 +19,7 @@ test("steel modulus lowers counts in proportion to stiffness", () => {
   const steel = estimateScale({ ...shared, youngMpa: 200000, yieldMpa: 250 });
   const ratio = steel.countsPerGram / aluminum.countsPerGram;
   assert.ok(Math.abs(ratio - 68900 / 200000) < 1e-9, `ratio ${ratio}`);
+  assert.ok(steel.yieldKg != null && aluminum.yieldKg != null);
   assert.ok(Math.abs(steel.yieldKg / aluminum.yieldKg - 250 / 276) < 1e-9);
 });
 
@@ -42,6 +43,16 @@ test("a short grid at the root averages below the peak", () => {
   const fraction = rootGridFraction(2, 8);
   assert.ok(fraction !== null && Math.abs(fraction - 0.75) < 1e-9);
   assert.equal(rootGridFraction(5.3, 8), null);
+});
+
+test("four necks are twice as stiff as two of the same width", () => {
+  const shared = { youngMpa: 68900, yieldMpa: 276, thicknessMm: 2.54, neckWidthMm: 1.6, neckLengthMm: 8 };
+  const two = bendingStiffness({ ...shared, neckCount: 2 });
+  const four = bendingStiffness({ ...shared, neckCount: 4 });
+  assert.ok(two && four);
+  assert.ok(Math.abs(four.stiffnessNPerMm / two.stiffnessNPerMm - 2) < 1e-9);
+  assert.ok(Math.abs(four.youngGpa - 68.9) < 1e-9);
+  assert.equal(bendingStiffness({ ...shared, neckCount: 2, neckWidthMm: 0 }), null);
 });
 
 test("doubling leaf thickness quarters the counts per gram", () => {
