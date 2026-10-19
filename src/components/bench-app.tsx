@@ -23,7 +23,7 @@ import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { printerSnippet } from "@/lib/frontends";
-import { CELL, NORMAL_RATES, TURBO_RATES, estimateScale } from "@/lib/model";
+import { CELL, GAUGE_PRESETS, MATERIALS, NORMAL_RATES, TURBO_RATES, estimateScale, gaugeById, materialById, rootGridFraction, type BridgeKind } from "@/lib/model";
 import { GOALS } from "@/lib/analyze";
 
 const MASS_PRESETS = [20, 50, 100, 200, 500, 1000];
@@ -522,6 +522,8 @@ function RangePanel() {
     youngMpa: bench.youngMpa,
     yieldMpa: bench.yieldMpa,
     gaugeFactor: bench.gaugeFactor,
+    strainFraction: bench.strainFraction,
+    bridge: bench.bridge,
     gain: bench.gain,
     vref: bench.vref,
   });
@@ -626,7 +628,7 @@ function RangePanel() {
             <p className="text-xs text-[#6d675e]">Noise rms is the {bench.noiseRmsEntered.toFixed(1)} counts you typed. Measuring the floor replaces it.</p>
           )}
           <p className="text-xs text-[#6d675e]">
-            Optional leaf sketch, {bench.neckCount} necks {bench.neckWidth.toFixed(1)} mm by {bench.neckLength.toFixed(0)} mm, {bench.thicknessMm.toFixed(2)} mm thick: about {sketch.yieldKg.toFixed(1)} kg before yield. That figure is only a ceiling for a leaf flexure. It is not a measurement of every cell.
+            Optional leaf sketch in {materialById(bench.materialId).name}, {bench.neckCount} necks {bench.neckWidth.toFixed(1)} mm by {bench.neckLength.toFixed(0)} mm, {bench.thicknessMm.toFixed(2)} mm thick: about {sketch.yieldKg.toFixed(1)} kg before the material yields. That figure is only a ceiling for a leaf flexure.
           </p>
         </CardContent>
       </Card>
@@ -654,7 +656,7 @@ function BuildPanel() {
           <CardHeader>
             <CardTitle className="text-base">Cell you are testing</CardTitle>
             <CardDescription>
-              Any full-bridge cell. Name it, set the capacity you are willing to load, and type a scale if you already know counts per gram. Accuracy and Range can take mass-and-count rows without a stream.
+              Any foil-gauge cell. Name it, pick the alloy and the gauge on the sketch, and type a scale if you already know counts per gram. Accuracy and Range can take mass-and-count rows without a stream.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -678,10 +680,37 @@ function BuildPanel() {
           <CardHeader>
             <CardTitle className="text-base">Optional leaf sketch</CardTitle>
             <CardDescription>
-              Out-of-plane bending of the gauged necks. The numbers start as the K2 plate. Use them only when this cell is that kind of flexure. A typed scale replaces the sketch.
+              Out-of-plane bending of the gauged necks. Choose the alloy and the foil; the numbers start as the K2 plate. Use the sketch only for this kind of flexure. A typed scale replaces it.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
+            <Field label="Material">
+              <NativeSelect value={bench.materialId} onChange={bench.setMaterialId}>
+                {MATERIALS.map((material) => (
+                  <option key={material.id} value={material.id}>
+                    {material.name}
+                  </option>
+                ))}
+              </NativeSelect>
+            </Field>
+            <p className="text-xs text-[#5c564c]">{materialById(bench.materialId).note}</p>
+            <Field label="Strain gauge">
+              <NativeSelect value={bench.gaugeId} onChange={bench.setGaugeId}>
+                {GAUGE_PRESETS.map((gauge) => (
+                  <option key={gauge.id} value={gauge.id}>
+                    {gauge.name}
+                  </option>
+                ))}
+              </NativeSelect>
+            </Field>
+            <p className="text-xs text-[#5c564c]">{gaugeById(bench.gaugeId).note}</p>
+            <Field label="Bridge">
+              <NativeSelect value={bench.bridge} onChange={(value) => bench.setBridge(value as BridgeKind)}>
+                <option value="full">Full bridge, 4 active gauges</option>
+                <option value="half">Half bridge, 2 active gauges</option>
+                <option value="quarter">Quarter bridge, 1 active gauge</option>
+              </NativeSelect>
+            </Field>
             <div className="grid gap-3 sm:grid-cols-2">
               <Field label="Thickness, mm">
                 <Input type="number" step="0.01" min={0.2} value={bench.thicknessMm} onChange={(event) => bench.setThicknessMm(Number(event.target.value) || CELL.thicknessMm)} />
@@ -695,6 +724,38 @@ function BuildPanel() {
               <Field label="Gauge factor">
                 <Input type="number" step="0.01" min={0.1} value={bench.gaugeFactor} onChange={(event) => bench.setGaugeFactor(Number(event.target.value) || CELL.gauge.gaugeFactor)} />
               </Field>
+              <Field label="Resistance, ohms">
+                <Input
+                  type="number"
+                  step="1"
+                  min={1}
+                  placeholder="from the package"
+                  value={bench.resistanceOhm ?? ""}
+                  onChange={(event) => bench.setResistanceOhm(event.target.value === "" ? null : Number(event.target.value))}
+                />
+              </Field>
+              <Field label="Grid length, mm">
+                <Input
+                  type="number"
+                  step="0.1"
+                  min={0.2}
+                  placeholder="along the neck"
+                  value={bench.gridLengthMm ?? ""}
+                  onChange={(event) => bench.setGridLengthMm(event.target.value === "" ? null : Number(event.target.value))}
+                />
+              </Field>
+              <Field label="Grid width, mm">
+                <Input
+                  type="number"
+                  step="0.1"
+                  min={0.2}
+                  value={bench.gridWidthMm ?? ""}
+                  onChange={(event) => bench.setGridWidthMm(event.target.value === "" ? null : Number(event.target.value))}
+                />
+              </Field>
+              <Field label="Share of peak strain">
+                <Input type="number" step="0.05" min={0.05} max={1} value={bench.strainFraction} onChange={(event) => bench.setStrainFraction(Number(event.target.value) || 1)} />
+              </Field>
               <Field label="Neck count">
                 <Input type="number" step="1" min={1} value={bench.neckCount} onChange={(event) => bench.setNeckCount(Number(event.target.value) || CELL.defaultNeckCount)} />
               </Field>
@@ -705,9 +766,21 @@ function BuildPanel() {
                 <Input type="number" step="0.5" min={2} value={bench.neckLength} onChange={(event) => bench.setNeckLength(Number(event.target.value) || CELL.defaultNeckLengthMm)} />
               </Field>
             </div>
-            <Button variant="outline" className="w-full" onClick={bench.useSketchScale}>
-              Use this sketch as the live scale
-            </Button>
+            <p className="text-xs text-[#5c564c]">
+              {rootGridFraction(bench.gridLengthMm ?? 0, bench.neckLength) === null
+                ? "The grid is longer than half the neck, or its length is blank. The sketch uses the peak strain until you type the share the foil actually averages."
+                : `A grid this long, bonded at the root, averages about ${((rootGridFraction(bench.gridLengthMm ?? 0, bench.neckLength) ?? 1) * 100).toFixed(0)}% of the peak.`}
+              {" "}Resistance does not change counts per gram. It sets how warm the foil gets at a given excitation.
+            </p>
+            <SketchPreview />
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <Button variant="outline" className="flex-1" onClick={bench.applyRootGridFraction}>
+                Use root-grid average
+              </Button>
+              <Button variant="outline" className="flex-1" onClick={bench.useSketchScale}>
+                Use this sketch as the live scale
+              </Button>
+            </div>
           </CardContent>
         </Card>
       </div>
@@ -786,6 +859,28 @@ function BuildPanel() {
         </div>
       </div>
     </div>
+  );
+}
+
+function SketchPreview() {
+  const bench = useBench();
+  const sketch = estimateScale({
+    neckWidthMm: bench.neckWidth,
+    neckLengthMm: bench.neckLength,
+    neckCount: bench.neckCount,
+    thicknessMm: bench.thicknessMm,
+    youngMpa: bench.youngMpa,
+    yieldMpa: bench.yieldMpa,
+    gaugeFactor: bench.gaugeFactor,
+    strainFraction: bench.strainFraction,
+    bridge: bench.bridge,
+    gain: bench.gain,
+    vref: bench.vref,
+  });
+  return (
+    <p className="font-mono text-sm tabular-nums text-[#3c3832]">
+      Sketch {sketch.countsPerGram.toFixed(1)} ct/g at gain {bench.gain}. Yield about {sketch.yieldKg.toFixed(1)} kg.
+    </p>
   );
 }
 
@@ -907,7 +1002,7 @@ function ManualRange() {
 function BridgeNotes() {
   return (
     <div className="space-y-2 text-xs leading-relaxed text-[#5c564c]">
-      <p>Four 1000 Ω gauges, gauge factor about 2.0. A full bridge of two in tension and two in compression. The cable in the photos is red, green, blue, and black. Land those on the Plimsoll E+, E−, S+, and S− pads.</p>
+      <p>The K2 cell uses four 1000 Ω gauges, gauge factor about 2.0, as a full bridge of two in tension and two in compression. Another cell can be a half or quarter bridge, or a different foil. The cable in the photos is red, green, blue, and black. Land those on the Plimsoll E+, E−, S+, and S− pads.</p>
       <p>If pressing the nozzle side drives the live reading the wrong way, turn on Invert sign. Do not swap excitation with signal.</p>
       <p>Loctite 401 grabs fast and creeps. Loctite 9460 protects the grid and also changes the stiffness until it has cured. The 30 second hold is there to show that, not to hide it.</p>
       <svg viewBox="0 0 220 120" className="mt-2 w-full rounded-md border border-[#e4ddd0] bg-[#f7f4ee]" aria-label="Full bridge wiring">

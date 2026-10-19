@@ -1,6 +1,8 @@
-// First-order sketch of the 6061-T6 plate. The gauges sit on the face, so the
-// load that matters is a force normal to the plate, bending the necks as
-// leaf springs. This is a starting scale and a yield ceiling, not a calibration.
+// First-order sketch of a leaf flexure. The K2 plate is the default alloy and
+// gauge. Other alloys and foils fill the same fields. The gauges sit on the
+// face, so the load that matters is a force normal to the plate, bending the
+// necks as leaf springs. This is a starting scale and a yield ceiling, not a
+// calibration.
 
 export const CELL = {
   name: "K2 loadcell",
@@ -33,6 +35,129 @@ export const CELL = {
   internalRefV: 2.048,
 };
 
+export type MaterialPreset = {
+  id: string;
+  name: string;
+  youngMpa: number | null;
+  yieldMpa: number | null;
+  note: string;
+};
+
+/** Handbook typicals, not a certificate. Temper moves the yield more than the modulus. */
+export const MATERIALS: MaterialPreset[] = [
+  {
+    id: "6061-t6",
+    name: "6061-T6 aluminum",
+    youngMpa: 68900,
+    yieldMpa: 276,
+    note: "The K2 plate. Modulus 68.9 GPa, yield 276 MPa.",
+  },
+  {
+    id: "7075-t6",
+    name: "7075-T6 aluminum",
+    youngMpa: 71700,
+    yieldMpa: 503,
+    note: "Slightly stiffer than 6061, with a higher yield.",
+  },
+  {
+    id: "mild-steel",
+    name: "Mild steel",
+    youngMpa: 200000,
+    yieldMpa: 250,
+    note: "About 200 GPa, so the same neck makes roughly a third of the aluminum signal. The yield shown is an A36-class minimum. Cold-drawn bar is stronger.",
+  },
+  {
+    id: "17-4-h900",
+    name: "17-4 PH H900",
+    youngMpa: 197000,
+    yieldMpa: 1170,
+    note: "A common load-cell stainless. Modulus is near other steels. This yield is the H900 temper; other tempers are softer.",
+  },
+  {
+    id: "304",
+    name: "304 stainless, annealed",
+    youngMpa: 193000,
+    yieldMpa: 215,
+    note: "Modulus near other steels. Annealed yield is low for a flexure.",
+  },
+  {
+    id: "custom",
+    name: "Custom material",
+    youngMpa: null,
+    yieldMpa: null,
+    note: "Type the modulus and yield from the alloy sheet.",
+  },
+];
+
+export function materialById(id: string): MaterialPreset {
+  return MATERIALS.find((material) => material.id === id) ?? MATERIALS[MATERIALS.length - 1];
+}
+
+export type GaugePreset = {
+  id: string;
+  name: string;
+  resistanceOhm: number | null;
+  gaugeFactor: number | null;
+  /** Active grid length along the neck, in millimeters. */
+  gridLengthMm: number | null;
+  gridWidthMm: number | null;
+  note: string;
+};
+
+export const GAUGE_PRESETS: GaugePreset[] = [
+  {
+    id: "ba1000-3aa",
+    name: "BA1000-3AA",
+    resistanceOhm: 1000,
+    gaugeFactor: 2.0,
+    gridLengthMm: 5.3,
+    gridWidthMm: 3.0,
+    note: "1000 Ω, gauge factor about 2.0, grid 3.0 × 5.3 mm. The package range is about 1.8 to 2.2.",
+  },
+  {
+    id: "foil-350",
+    name: "350 Ω foil",
+    resistanceOhm: 350,
+    gaugeFactor: 2.0,
+    gridLengthMm: null,
+    gridWidthMm: null,
+    note: "A common foil gauge. The factor is usually near 2. Type the grid length from the package.",
+  },
+  {
+    id: "custom",
+    name: "Custom gauge",
+    resistanceOhm: null,
+    gaugeFactor: null,
+    gridLengthMm: null,
+    gridWidthMm: null,
+    note: "Type the gauge factor from the package. Resistance does not change counts per gram.",
+  },
+];
+
+export function gaugeById(id: string): GaugePreset {
+  return GAUGE_PRESETS.find((gauge) => gauge.id === id) ?? GAUGE_PRESETS[GAUGE_PRESETS.length - 1];
+}
+
+export type BridgeKind = "full" | "half" | "quarter";
+
+/** Relative to four active arms that each see the same strain magnitude. */
+export function bridgeFactor(kind: BridgeKind): number {
+  if (kind === "half") return 0.5;
+  if (kind === "quarter") return 0.25;
+  return 1;
+}
+
+/**
+ * Average of a guided-leaf moment over a grid that starts at the root.
+ * The moment falls linearly to zero at midspan, so a grid longer than half
+ * the neck has no single answer. Returns null in that case.
+ */
+export function rootGridFraction(gridLengthMm: number, neckLengthMm: number): number | null {
+  if (!(gridLengthMm > 0) || !(neckLengthMm > 0)) return null;
+  if (gridLengthMm > neckLengthMm / 2) return null;
+  return 1 - gridLengthMm / neckLengthMm;
+}
+
 export type ScaleInput = {
   neckWidthMm: number;
   neckLengthMm: number;
@@ -44,6 +169,9 @@ export type ScaleInput = {
   yieldMpa?: number;
   gaugeFactor?: number;
   excitationV?: number;
+  /** Share of the peak surface strain the grid averages. 1 uses the peak. */
+  strainFraction?: number;
+  bridge?: BridgeKind;
 };
 
 export type ScaleEstimate = {
@@ -62,12 +190,16 @@ export function estimateScale(input: ScaleInput): ScaleEstimate {
   const Sy = input.yieldMpa ?? CELL.yieldMpa;
   const gf = input.gaugeFactor ?? CELL.gauge.gaugeFactor;
   const vex = input.excitationV ?? CELL.assumedExcitationV;
+  const strainFraction = input.strainFraction ?? 1;
+  const arms = bridgeFactor(input.bridge ?? "full");
   // Guided leaf, moment FL/2, section modulus b*t^2/6.
   // sigma = F * 3 * L / (b * t^2) for the whole load shared by the necks.
+  // That stress is the peak. strainFraction is the share of it the grid averages.
+  // A half or quarter bridge uses completion resistors on the idle arms.
   const yieldNewtons = (Sy * b * t * t) / (3 * L);
   const sigmaPerGram = (0.00980665 * 3 * L) / (b * t * t);
-  const microstrainPerGram = (sigmaPerGram / E) * 1e6;
-  const ratioPerGram = gf * (sigmaPerGram / E);
+  const microstrainPerGram = (sigmaPerGram / E) * 1e6 * strainFraction;
+  const ratioPerGram = gf * (sigmaPerGram / E) * strainFraction * arms;
   const countsPerGram =
     input.vref === "analog_supply"
       ? ratioPerGram * input.gain * 8388608

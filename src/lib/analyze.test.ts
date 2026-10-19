@@ -2,8 +2,47 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { analyzeRate, fitLine, hysteresisOf, judgeAccuracy, analyzeRange, rollingRate, windowDrift } from "./analyze.ts";
 import { SimulatorSource } from "./simulator.ts";
-import { estimateScale, CELL } from "./model.ts";
+import { estimateScale, rootGridFraction, CELL } from "./model.ts";
 import type { Sample } from "./analyze.ts";
+
+test("steel modulus lowers counts in proportion to stiffness", () => {
+  const shared = {
+    neckWidthMm: 1.6,
+    neckLengthMm: 8,
+    neckCount: 2,
+    gain: 128,
+    vref: "internal" as const,
+    thicknessMm: 2.54,
+    gaugeFactor: 2,
+  };
+  const aluminum = estimateScale({ ...shared, youngMpa: 68900, yieldMpa: 276 });
+  const steel = estimateScale({ ...shared, youngMpa: 200000, yieldMpa: 250 });
+  const ratio = steel.countsPerGram / aluminum.countsPerGram;
+  assert.ok(Math.abs(ratio - 68900 / 200000) < 1e-9, `ratio ${ratio}`);
+  assert.ok(Math.abs(steel.yieldKg / aluminum.yieldKg - 250 / 276) < 1e-9);
+});
+
+test("bridge arms and the strain fraction scale the output", () => {
+  const shared = {
+    neckWidthMm: 1.6,
+    neckLengthMm: 8,
+    neckCount: 2,
+    gain: 64,
+    vref: "internal" as const,
+  };
+  const full = estimateScale({ ...shared, bridge: "full", strainFraction: 1 });
+  const half = estimateScale({ ...shared, bridge: "half" });
+  const quarter = estimateScale({ ...shared, bridge: "quarter", strainFraction: 0.5 });
+  assert.ok(Math.abs(half.countsPerGram * 2 - full.countsPerGram) < 1e-6);
+  assert.ok(Math.abs(quarter.countsPerGram * 8 - full.countsPerGram) < 1e-6);
+  assert.equal(half.yieldKg, full.yieldKg);
+});
+
+test("a short grid at the root averages below the peak", () => {
+  const fraction = rootGridFraction(2, 8);
+  assert.ok(fraction !== null && Math.abs(fraction - 0.75) < 1e-9);
+  assert.equal(rootGridFraction(5.3, 8), null);
+});
 
 test("doubling leaf thickness quarters the counts per gram", () => {
   const shared = {

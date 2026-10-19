@@ -1,4 +1,4 @@
-import { estimateScale, CELL } from "./model";
+import { estimateScale, CELL, type BridgeKind } from "./model";
 import { isSaturated, FULL_SCALE_COUNTS } from "./ads1220";
 import type { Sample, StreamOptions } from "./analyze";
 
@@ -10,6 +10,8 @@ export type SimOptions = StreamOptions & {
   youngMpa?: number;
   yieldMpa?: number;
   gaugeFactor?: number;
+  strainFraction?: number;
+  bridge?: BridgeKind;
   /** Bridge imbalance as a fraction of excitation. Real CA bonds are rarely zero. */
   offsetRatio?: number;
 };
@@ -83,6 +85,8 @@ export class SimulatorSource {
     youngMpa?: number;
     yieldMpa?: number;
     gaugeFactor?: number;
+    strainFraction?: number;
+    bridge?: BridgeKind;
   }) {
     this.opts = { ...this.opts, ...geometry };
   }

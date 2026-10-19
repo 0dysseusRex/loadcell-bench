@@ -33,7 +33,7 @@ import {
 import { isSaturated } from "@/lib/ads1220";
 import { H36Session } from "@/lib/klipper/session";
 import { FRONTS, frontById, type FrontEnd } from "@/lib/frontends";
-import { CELL, estimateScale } from "@/lib/model";
+import { CELL, estimateScale, gaugeById, materialById, rootGridFraction, type BridgeKind } from "@/lib/model";
 import { SimulatorSource } from "@/lib/simulator";
 
 export type Phase = "idle" | "connecting" | "ready" | "streaming" | "busy";
@@ -99,6 +99,21 @@ type BenchApi = {
   setYieldMpa: (mpa: number) => void;
   gaugeFactor: number;
   setGaugeFactor: (factor: number) => void;
+  materialId: string;
+  setMaterialId: (id: string) => void;
+  gaugeId: string;
+  setGaugeId: (id: string) => void;
+  resistanceOhm: number | null;
+  setResistanceOhm: (ohm: number | null) => void;
+  gridLengthMm: number | null;
+  setGridLengthMm: (mm: number | null) => void;
+  gridWidthMm: number | null;
+  setGridWidthMm: (mm: number | null) => void;
+  bridge: BridgeKind;
+  setBridge: (bridge: BridgeKind) => void;
+  strainFraction: number;
+  setStrainFraction: (fraction: number) => void;
+  applyRootGridFraction: () => void;
   ratedGrams: number | null;
   setRatedGrams: (grams: number | null) => void;
   insertCapture: (kind: Capture["kind"], grams: number, counts: number) => void;
@@ -190,6 +205,13 @@ export function BenchProvider({ children }: { children: ReactNode }) {
   const [youngMpa, setYoungMpa] = useState(CELL.youngMpa);
   const [yieldMpa, setYieldMpa] = useState(CELL.yieldMpa);
   const [gaugeFactor, setGaugeFactor] = useState(CELL.gauge.gaugeFactor);
+  const [materialId, setMaterialIdState] = useState("6061-t6");
+  const [gaugeId, setGaugeIdState] = useState("ba1000-3aa");
+  const [resistanceOhm, setResistanceOhm] = useState<number | null>(CELL.gauge.resistanceOhm);
+  const [gridLengthMm, setGridLengthMm] = useState<number | null>(CELL.gauge.gridMm[1]);
+  const [gridWidthMm, setGridWidthMm] = useState<number | null>(CELL.gauge.gridMm[0]);
+  const [bridge, setBridge] = useState<BridgeKind>("full");
+  const [strainFraction, setStrainFractionState] = useState(1);
   const [ratedGrams, setRatedGrams] = useState<number | null>(null);
   const [noiseRmsEntered, setNoiseRmsEntered] = useState<number | null>(null);
   const [rev, setRev] = useState(0);
@@ -260,8 +282,10 @@ export function BenchProvider({ children }: { children: ReactNode }) {
       youngMpa,
       yieldMpa,
       gaugeFactor,
+      strainFraction,
+      bridge,
     }),
-    [neckWidth, neckLength, neckCount, thicknessMm, youngMpa, yieldMpa, gaugeFactor],
+    [neckWidth, neckLength, neckCount, thicknessMm, youngMpa, yieldMpa, gaugeFactor, strainFraction, bridge],
   );
   const geometryRef = useRef(geometry);
   geometryRef.current = geometry;
@@ -975,15 +999,92 @@ export function BenchProvider({ children }: { children: ReactNode }) {
     },
     youngMpa,
     setYoungMpa: (mpa) => {
-      if (Number.isFinite(mpa) && mpa > 0) setYoungMpa(mpa);
+      if (Number.isFinite(mpa) && mpa > 0) {
+        setYoungMpa(mpa);
+        setMaterialIdState("custom");
+      }
     },
     yieldMpa,
     setYieldMpa: (mpa) => {
-      if (Number.isFinite(mpa) && mpa > 0) setYieldMpa(mpa);
+      if (Number.isFinite(mpa) && mpa > 0) {
+        setYieldMpa(mpa);
+        setMaterialIdState("custom");
+      }
     },
     gaugeFactor,
     setGaugeFactor: (factor) => {
-      if (Number.isFinite(factor) && factor > 0) setGaugeFactor(factor);
+      if (Number.isFinite(factor) && factor > 0) {
+        setGaugeFactor(factor);
+        setGaugeIdState("custom");
+      }
+    },
+    materialId,
+    setMaterialId: (id) => {
+      const material = materialById(id);
+      setMaterialIdState(material.id);
+      if (material.youngMpa != null) setYoungMpa(material.youngMpa);
+      if (material.yieldMpa != null) setYieldMpa(material.yieldMpa);
+    },
+    gaugeId,
+    setGaugeId: (id) => {
+      const gauge = gaugeById(id);
+      setGaugeIdState(gauge.id);
+      if (gauge.id === "custom") return;
+      if (gauge.gaugeFactor != null) setGaugeFactor(gauge.gaugeFactor);
+      setResistanceOhm(gauge.resistanceOhm);
+      setGridLengthMm(gauge.gridLengthMm);
+      setGridWidthMm(gauge.gridWidthMm);
+    },
+    resistanceOhm,
+    setResistanceOhm: (ohm) => {
+      if (ohm === null) {
+        setResistanceOhm(null);
+        setGaugeIdState("custom");
+        return;
+      }
+      if (Number.isFinite(ohm) && ohm > 0) {
+        setResistanceOhm(ohm);
+        setGaugeIdState("custom");
+      }
+    },
+    gridLengthMm,
+    setGridLengthMm: (mm) => {
+      if (mm === null) {
+        setGridLengthMm(null);
+        setGaugeIdState("custom");
+        return;
+      }
+      if (Number.isFinite(mm) && mm > 0) {
+        setGridLengthMm(mm);
+        setGaugeIdState("custom");
+      }
+    },
+    gridWidthMm,
+    setGridWidthMm: (mm) => {
+      if (mm === null) {
+        setGridWidthMm(null);
+        setGaugeIdState("custom");
+        return;
+      }
+      if (Number.isFinite(mm) && mm > 0) {
+        setGridWidthMm(mm);
+        setGaugeIdState("custom");
+      }
+    },
+    bridge,
+    setBridge,
+    strainFraction,
+    setStrainFraction: (fraction) => {
+      if (Number.isFinite(fraction) && fraction > 0 && fraction <= 1) setStrainFractionState(fraction);
+    },
+    applyRootGridFraction: () => {
+      const fraction = rootGridFraction(gridLengthMm ?? 0, neckLength);
+      if (fraction === null) {
+        setError("This grid is longer than half the neck, so the average depends on where you bond it. Type the share of the peak strain it sees.");
+        return;
+      }
+      setStrainFractionState(fraction);
+      setError(null);
     },
     ratedGrams,
     setRatedGrams: (grams) => {
