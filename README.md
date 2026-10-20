@@ -32,11 +32,13 @@ Open [http://127.0.0.1:4471](http://127.0.0.1:4471).
 
 The Build tab has a bending calculator for the alloys load cells are usually cut from: 6061-T6, 2024-T3, 7075-T6, 17-4 PH H900, and alloy steel. You give it thickness and the neck width, length, and count. It reports Young's modulus, guided-leaf stiffness, and a yield load when the yield is known.
 
-Two K2 cells are built in. The redesign is 6061-T6, 0.100 in, four necks, gauges on one face, and it is the simulator's starting scale. The OEM part (4001010038) is steel, 3 mm thick, two necks, with a gauge on each face of each neck. Its listing gives 38 × 23.95 mm and does not give neck width, neck length, or the gauge, so the simulator does not invent a scale for it until you type those necks or a counts-per-gram.
+The bending calculator starts on the Custom K2 Loadcell: 6061-T6, 0.100 in, four necks, gauges on one face, and the simulator's starting scale. CUSTOM LOADCELL leaves the alloy, thickness, necks, and gauge blank. Save this cell downloads a file and keeps a copy in the browser. Upload that file on a later visit.
+
+The Build tab also takes a DXF sketch. Click two points to fill a neck width or length, or click to place a gauge and see whether the grid fits the neck. DWG files need Save As DXF first. The click check is a fit, not a stress analysis.
 
 The gauge card takes BA1000-3AA, a 350 Ω foil, or a custom factor. A half bridge or a quarter bridge scales the output for arms that are completion resistors. A scale you type, or a fit you apply, replaces the sketch in the simulator and on the live grams.
 
-A guide along the left walks through the bench in order: name the cell, connect or use the simulator, watch the live counts, then run speed, accuracy, and range. On a narrow screen that guide sits above the tabs and can be hidden. When those three tests have results, Compile results opens one page in plain language. Print it from the browser if you want a copy.
+A guide along the left starts with the amp menu at the top right: pick the board, then Connect or Use simulator. After that it walks through naming the cell, the live counts, and speed, accuracy, and range. On a narrow screen that guide sits above the tabs and can be hidden. When those three tests have results, Compile results opens one page in plain language. Print it from the browser if you want a copy.
 
 ## Wire it
 

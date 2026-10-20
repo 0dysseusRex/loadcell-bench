@@ -33,7 +33,8 @@ import {
 import { isSaturated } from "@/lib/ads1220";
 import { H36Session } from "@/lib/klipper/session";
 import { FRONTS, frontById, type FrontEnd } from "@/lib/frontends";
-import { CELL, cellProfileById, estimateScale, gaugeById, materialById, rootGridFraction, type BridgeKind, type GaugeMount } from "@/lib/model";
+import { cellFileName, loadSavedCells, parseCellFile, upsertSavedCell, writeSavedCells, type CellFile, type GaugeMark, type SavedCell } from "@/lib/cell-file";
+import { CELL, CELL_PROFILES, cellProfileById, estimateScale, gaugeById, materialById, rootGridFraction, type BridgeKind, type GaugeMount } from "@/lib/model";
 import { SimulatorSource } from "@/lib/simulator";
 
 export type Phase = "idle" | "connecting" | "ready" | "streaming" | "busy";
@@ -87,21 +88,21 @@ type BenchApi = {
   setNeckWidth: (mm: number | null) => void;
   neckLength: number | null;
   setNeckLength: (mm: number | null) => void;
-  neckCount: number;
-  setNeckCount: (count: number) => void;
+  neckCount: number | null;
+  setNeckCount: (count: number | null) => void;
   cellName: string;
   setCellName: (name: string) => void;
-  thicknessMm: number;
-  setThicknessMm: (mm: number) => void;
-  youngMpa: number;
-  setYoungMpa: (mpa: number) => void;
+  thicknessMm: number | null;
+  setThicknessMm: (mm: number | null) => void;
+  youngMpa: number | null;
+  setYoungMpa: (mpa: number | null) => void;
   yieldMpa: number | null;
   setYieldMpa: (mpa: number | null) => void;
   cellProfileId: string;
   setCellProfileId: (id: string) => void;
-  gaugeMount: GaugeMount;
-  gaugeFactor: number;
-  setGaugeFactor: (factor: number) => void;
+  gaugeMount: GaugeMount | null;
+  gaugeFactor: number | null;
+  setGaugeFactor: (factor: number | null) => void;
   materialId: string;
   setMaterialId: (id: string) => void;
   gaugeId: string;
@@ -112,8 +113,15 @@ type BenchApi = {
   setGridLengthMm: (mm: number | null) => void;
   gridWidthMm: number | null;
   setGridWidthMm: (mm: number | null) => void;
-  bridge: BridgeKind;
-  setBridge: (bridge: BridgeKind) => void;
+  bridge: BridgeKind | null;
+  setBridge: (bridge: BridgeKind | null) => void;
+  gaugeMarks: GaugeMark[];
+  setGaugeMarks: (marks: GaugeMark[]) => void;
+  savedCells: SavedCell[];
+  saveCurrentCell: () => void;
+  loadCellFileText: (text: string) => void;
+  applySavedCell: (id: string) => void;
+  removeSavedCell: (id: string) => void;
   strainFraction: number;
   setStrainFraction: (fraction: number) => void;
   applyRootGridFraction: () => void;
@@ -202,20 +210,22 @@ export function BenchProvider({ children }: { children: ReactNode }) {
   const [load, setLoadState] = useState(0);
   const [neckWidth, setNeckWidthState] = useState<number | null>(CELL.defaultNeckWidthMm);
   const [neckLength, setNeckLengthState] = useState<number | null>(CELL.defaultNeckLengthMm);
-  const [neckCount, setNeckCountState] = useState(CELL.defaultNeckCount);
+  const [neckCount, setNeckCountState] = useState<number | null>(CELL.defaultNeckCount);
   const [cellName, setCellName] = useState(CELL.name);
-  const [thicknessMm, setThicknessMm] = useState(CELL.thicknessMm);
-  const [youngMpa, setYoungMpa] = useState(CELL.youngMpa);
+  const [thicknessMm, setThicknessMm] = useState<number | null>(CELL.thicknessMm);
+  const [youngMpa, setYoungMpa] = useState<number | null>(CELL.youngMpa);
   const [yieldMpa, setYieldMpa] = useState<number | null>(CELL.yieldMpa);
-  const [gaugeFactor, setGaugeFactor] = useState(CELL.gauge.gaugeFactor);
+  const [gaugeFactor, setGaugeFactor] = useState<number | null>(CELL.gauge.gaugeFactor);
   const [materialId, setMaterialIdState] = useState("6061-t6");
   const [cellProfileId, setCellProfileId] = useState("custom-k2");
-  const [gaugeMount, setGaugeMount] = useState<GaugeMount>("same-face");
+  const [gaugeMount, setGaugeMount] = useState<GaugeMount | null>("same-face");
   const [gaugeId, setGaugeIdState] = useState("ba1000-3aa");
   const [resistanceOhm, setResistanceOhm] = useState<number | null>(CELL.gauge.resistanceOhm);
   const [gridLengthMm, setGridLengthMm] = useState<number | null>(CELL.gauge.gridMm[1]);
   const [gridWidthMm, setGridWidthMm] = useState<number | null>(CELL.gauge.gridMm[0]);
-  const [bridge, setBridge] = useState<BridgeKind>("full");
+  const [bridge, setBridge] = useState<BridgeKind | null>("full");
+  const [gaugeMarks, setGaugeMarks] = useState<GaugeMark[]>([]);
+  const [savedCells, setSavedCells] = useState<SavedCell[]>([]);
   const [strainFraction, setStrainFractionState] = useState(1);
   const [ratedGrams, setRatedGrams] = useState<number | null>(null);
   const [noiseRmsEntered, setNoiseRmsEntered] = useState<number | null>(null);
@@ -278,8 +288,32 @@ export function BenchProvider({ children }: { children: ReactNode }) {
     setWebSerial("serial" in navigator);
   }, []);
 
+  useEffect(() => {
+    try {
+      setSavedCells(loadSavedCells(localStorage));
+    } catch {
+      setSavedCells([]);
+    }
+  }, []);
+
   const geometry = useMemo(() => {
-    if (neckWidth == null || neckLength == null || !(neckWidth > 0) || !(neckLength > 0)) return null;
+    if (
+      neckWidth == null ||
+      neckLength == null ||
+      neckCount == null ||
+      thicknessMm == null ||
+      youngMpa == null ||
+      gaugeFactor == null ||
+      bridge == null ||
+      !(neckWidth > 0) ||
+      !(neckLength > 0) ||
+      !(neckCount > 0) ||
+      !(thicknessMm > 0) ||
+      !(youngMpa > 0) ||
+      !(gaugeFactor > 0)
+    ) {
+      return null;
+    }
     return {
       neckWidthMm: neckWidth,
       neckLengthMm: neckLength,
@@ -398,7 +432,7 @@ export function BenchProvider({ children }: { children: ReactNode }) {
           ? `Simulator is on for ${frontRef.current.label}, using the scale you entered.`
           : ready
             ? `Simulator is on for ${frontRef.current.label}. Grams use the ${profileName} leaf sketch until you enter a scale or run Accuracy.`
-            : `Simulator is on for ${frontRef.current.label}. ${profileName} has no published neck size, so grams wait for a neck width and length or a scale you type.`,
+            : `Simulator is on for ${frontRef.current.label}. ${profileName} has no neck size yet, so grams wait for a width and length or a scale you type.`,
       );
     })();
   }, [disconnect, pushLog]);
@@ -783,7 +817,7 @@ export function BenchProvider({ children }: { children: ReactNode }) {
   const useSketchScale = useCallback(() => {
     const ready = geometryRef.current;
     if (!ready) {
-      setError("Type a neck width and length. The OEM listing does not include them.");
+      setError("Type a neck width and length, a thickness, a material, and a gauge factor before using the sketch.");
       return;
     }
     const cpg = estimateScale({
@@ -970,6 +1004,98 @@ export function BenchProvider({ children }: { children: ReactNode }) {
   const gaps = sourceRef.current?.gaps ?? 0;
   const linkErrors = sourceRef.current?.errors ?? 0;
 
+  const currentFile = (): CellFile => ({
+    kind: "loadcell-bench-cell",
+    version: 1,
+    name: cellName,
+    profileId: cellProfileId,
+    materialId: materialId || null,
+    youngMpa,
+    yieldMpa,
+    thicknessMm,
+    neckCount,
+    neckWidthMm: neckWidth,
+    neckLengthMm: neckLength,
+    gaugeId: gaugeId || null,
+    gaugeFactor,
+    resistanceOhm,
+    gridLengthMm,
+    gridWidthMm,
+    bridge,
+    gaugeMount,
+    strainFraction,
+    ratedGrams,
+    countsPerGram,
+    tareCounts: tare,
+    gauges: gaugeMarks,
+  });
+
+  const rememberCell = (file: CellFile) => {
+    setSavedCells((prev) => {
+      const next = upsertSavedCell(prev, file);
+      try {
+        writeSavedCells(localStorage, next);
+      } catch {
+        // The download still works when the browser refuses storage.
+      }
+      return next;
+    });
+  };
+
+  const applyFile = (file: CellFile) => {
+    const known = CELL_PROFILES.some((profile) => profile.id === file.profileId);
+    setCellProfileId(known && file.profileId ? file.profileId : "custom-loadcell");
+    setCellName(file.name);
+    setMaterialIdState(file.materialId ?? "");
+    setYoungMpa(file.youngMpa);
+    setYieldMpa(file.yieldMpa);
+    setThicknessMm(file.thicknessMm);
+    setNeckCountState(file.neckCount);
+    setNeckWidthState(file.neckWidthMm);
+    setNeckLengthState(file.neckLengthMm);
+    setGaugeIdState(file.gaugeId ?? "");
+    setGaugeFactor(file.gaugeFactor);
+    setResistanceOhm(file.resistanceOhm);
+    setGridLengthMm(file.gridLengthMm);
+    setGridWidthMm(file.gridWidthMm);
+    setBridge(file.bridge);
+    setGaugeMount(file.gaugeMount);
+    if (file.strainFraction != null && file.strainFraction <= 1) setStrainFractionState(file.strainFraction);
+    setRatedGrams(file.ratedGrams);
+    setGaugeMarks(file.gauges);
+    if (file.countsPerGram != null && file.tareCounts != null) {
+      setCountsPerGram(file.countsPerGram);
+      setTare(file.tareCounts);
+      setScaleSource("entered");
+      simRef.current?.setSensitivity(file.countsPerGram);
+    }
+    setError(null);
+    pushLog(`Loaded ${file.name.trim() || "a cell file"}.`);
+  };
+
+  const saveCurrentCell = () => {
+    const file = currentFile();
+    rememberCell(file);
+    const blob = new Blob([JSON.stringify(file, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = cellFileName(file);
+    link.click();
+    URL.revokeObjectURL(url);
+    pushLog(`Saved ${file.name.trim() || "this cell"}.`);
+  };
+
+  const loadCellFileText = (text: string) => {
+    try {
+      const file = parseCellFile(text);
+      applyFile(file);
+      rememberCell(file);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not read that cell file.");
+    }
+  };
+
   const api: BenchApi = {
     mode,
     front,
@@ -1021,16 +1147,28 @@ export function BenchProvider({ children }: { children: ReactNode }) {
     },
     neckCount,
     setNeckCount: (count) => {
+      if (count === null) {
+        setNeckCountState(null);
+        return;
+      }
       if (Number.isFinite(count) && count > 0) setNeckCountState(count);
     },
     cellName,
     setCellName,
     thicknessMm,
     setThicknessMm: (mm) => {
+      if (mm === null) {
+        setThicknessMm(null);
+        return;
+      }
       if (Number.isFinite(mm) && mm > 0) setThicknessMm(mm);
     },
     youngMpa,
     setYoungMpa: (mpa) => {
+      if (mpa === null) {
+        setYoungMpa(null);
+        return;
+      }
       if (Number.isFinite(mpa) && mpa > 0) {
         setYoungMpa(mpa);
         setMaterialIdState("custom");
@@ -1051,18 +1189,23 @@ export function BenchProvider({ children }: { children: ReactNode }) {
     cellProfileId,
     setCellProfileId: (id) => {
       const profile = cellProfileById(id);
-      const material = materialById(profile.materialId);
       setCellProfileId(profile.id);
       cellProfileRef.current = profile.id;
-      setCellName(profile.name);
-      setMaterialIdState(profile.materialId);
-      if (material.youngMpa != null) setYoungMpa(material.youngMpa);
-      setYieldMpa(material.yieldMpa);
+      setCellName(profile.id === "custom-loadcell" ? "" : profile.name);
+      setMaterialIdState(profile.materialId ?? "");
+      if (profile.materialId) {
+        const material = materialById(profile.materialId);
+        setYoungMpa(material.youngMpa);
+        setYieldMpa(profile.yieldMpa);
+      } else {
+        setYoungMpa(null);
+        setYieldMpa(null);
+      }
       setThicknessMm(profile.thicknessMm);
       setNeckCountState(profile.neckCount);
       setNeckWidthState(profile.neckWidthMm);
       setNeckLengthState(profile.neckLengthMm);
-      setGaugeIdState(profile.gaugeId);
+      setGaugeIdState(profile.gaugeId ?? "");
       setGaugeFactor(profile.gaugeFactor);
       setResistanceOhm(profile.resistanceOhm);
       setGridLengthMm(profile.gridLengthMm);
@@ -1070,10 +1213,15 @@ export function BenchProvider({ children }: { children: ReactNode }) {
       setBridge(profile.bridge);
       setGaugeMount(profile.gaugeMount);
       setStrainFractionState(1);
+      setGaugeMarks([]);
     },
     gaugeMount,
     gaugeFactor,
     setGaugeFactor: (factor) => {
+      if (factor === null) {
+        setGaugeFactor(null);
+        return;
+      }
       if (Number.isFinite(factor) && factor > 0) {
         setGaugeFactor(factor);
         setGaugeIdState("custom");
@@ -1081,13 +1229,28 @@ export function BenchProvider({ children }: { children: ReactNode }) {
     },
     materialId,
     setMaterialId: (id) => {
+      if (!id) {
+        setMaterialIdState("");
+        setYoungMpa(null);
+        setYieldMpa(null);
+        return;
+      }
       const material = materialById(id);
       setMaterialIdState(material.id);
       if (material.youngMpa != null) setYoungMpa(material.youngMpa);
+      else setYoungMpa(null);
       setYieldMpa(material.yieldMpa);
     },
     gaugeId,
     setGaugeId: (id) => {
+      if (!id) {
+        setGaugeIdState("");
+        setGaugeFactor(null);
+        setResistanceOhm(null);
+        setGridLengthMm(null);
+        setGridWidthMm(null);
+        return;
+      }
       const gauge = gaugeById(id);
       setGaugeIdState(gauge.id);
       if (gauge.id === "custom") return;
@@ -1163,6 +1326,26 @@ export function BenchProvider({ children }: { children: ReactNode }) {
     noiseRmsEntered,
     applyEnteredScale,
     useSketchScale,
+    gaugeMarks,
+    setGaugeMarks,
+    savedCells,
+    saveCurrentCell,
+    loadCellFileText,
+    applySavedCell: (id) => {
+      const found = savedCells.find((cell) => cell.id === id);
+      if (found) applyFile(found.file);
+    },
+    removeSavedCell: (id) => {
+      setSavedCells((prev) => {
+        const next = prev.filter((cell) => cell.id !== id);
+        try {
+          writeSavedCells(localStorage, next);
+        } catch {
+          // The list still updates on screen.
+        }
+        return next;
+      });
+    },
     samples,
     rate,
     latestCounts,

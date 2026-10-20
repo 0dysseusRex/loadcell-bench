@@ -1,4 +1,4 @@
-export const GUIDE_STEP_IDS = ["name", "connect", "live", "speed", "accuracy", "range"] as const;
+export const GUIDE_STEP_IDS = ["connect", "name", "live", "speed", "accuracy", "range"] as const;
 
 export type GuideStepId = (typeof GUIDE_STEP_IDS)[number];
 

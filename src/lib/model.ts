@@ -5,7 +5,7 @@
 // calibration.
 
 export const CELL = {
-  name: "K2 redesign",
+  name: "Custom K2 Loadcell",
   alloy: "6061-T6",
   thicknessIn: 0.1,
   thicknessMm: 2.54,
@@ -50,7 +50,7 @@ export const MATERIALS: MaterialPreset[] = [
     name: "6061-T6 aluminum",
     youngMpa: 68900,
     yieldMpa: 276,
-    note: "Common for DIY flexures, and the alloy of this redesign. 68.9 GPa, yield 276 MPa.",
+    note: "Common for DIY flexures, and the alloy of the Custom K2 Loadcell. 68.9 GPa, yield 276 MPa.",
   },
   {
     id: "2024-t3",
@@ -78,7 +78,7 @@ export const MATERIALS: MaterialPreset[] = [
     name: "Alloy steel",
     youngMpa: 200000,
     yieldMpa: null,
-    note: "Steels used in load cells sit near 200 GPa. The OEM K2 cell is steel; its grade and yield are not published.",
+    note: "Steels used in load cells sit near 200 GPa. The grade and the yield come from the alloy sheet.",
   },
   {
     id: "custom",
@@ -144,25 +144,26 @@ export type CellProfile = {
   id: string;
   name: string;
   note: string;
-  materialId: string;
-  thicknessMm: number;
-  neckCount: number;
+  materialId: string | null;
+  thicknessMm: number | null;
+  neckCount: number | null;
   neckWidthMm: number | null;
   neckLengthMm: number | null;
-  gaugeId: string;
-  gaugeFactor: number;
+  gaugeId: string | null;
+  gaugeFactor: number | null;
   resistanceOhm: number | null;
   gridLengthMm: number | null;
   gridWidthMm: number | null;
-  bridge: BridgeKind;
-  gaugeMount: GaugeMount;
+  bridge: BridgeKind | null;
+  gaugeMount: GaugeMount | null;
+  yieldMpa: number | null;
 };
 
 export const CELL_PROFILES: CellProfile[] = [
   {
     id: "custom-k2",
-    name: "K2 redesign",
-    note: "Your plate: 6061-T6, 0.100 in, four necks, four BA1000-3AA gauges on one face. Neck width and length start from the cut file.",
+    name: "Custom K2 Loadcell",
+    note: "The worked example: 6061-T6, 0.100 in, four necks, four BA1000-3AA gauges on one face. Neck width and length start from the cut file.",
     materialId: "6061-t6",
     thicknessMm: CELL.thicknessMm,
     neckCount: 4,
@@ -175,23 +176,25 @@ export const CELL_PROFILES: CellProfile[] = [
     gridWidthMm: CELL.gauge.gridMm[0],
     bridge: "full",
     gaugeMount: "same-face",
+    yieldMpa: CELL.yieldMpa,
   },
   {
-    id: "oem-k2",
-    name: "OEM K2",
-    note: "Creality part 4001010038 is listed as 38 × 23.95 × 3 mm. Steel, two necks, one gauge on each face of each neck. Neck width, neck length, the steel grade, and the gauge model are not published.",
-    materialId: "alloy-steel",
-    thicknessMm: 3,
-    neckCount: 2,
+    id: "custom-loadcell",
+    name: "CUSTOM LOADCELL",
+    note: "A blank cell. Choose the alloy, the thickness, and the neck size, or upload a cell file you saved earlier. Nothing here is filled in.",
+    materialId: null,
+    thicknessMm: null,
+    neckCount: null,
     neckWidthMm: null,
     neckLengthMm: null,
-    gaugeId: "custom",
-    gaugeFactor: 2,
+    gaugeId: null,
+    gaugeFactor: null,
     resistanceOhm: null,
     gridLengthMm: null,
     gridWidthMm: null,
-    bridge: "full",
-    gaugeMount: "back-to-back",
+    bridge: null,
+    gaugeMount: null,
+    yieldMpa: null,
   },
 ];
 

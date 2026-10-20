@@ -4,15 +4,15 @@ import type { BridgeKind, GaugeMount } from "./model";
 export type ReportModel = {
   cellName: string;
   materialName: string;
-  thicknessMm: number;
-  neckCount: number;
+  thicknessMm: number | null;
+  neckCount: number | null;
   neckWidthMm: number | null;
   neckLengthMm: number | null;
   gaugeName: string;
-  gaugeFactor: number;
+  gaugeFactor: number | null;
   resistanceOhm: number | null;
-  bridge: BridgeKind;
-  gaugeMount: GaugeMount;
+  bridge: BridgeKind | null;
+  gaugeMount: GaugeMount | null;
   frontLabel: string;
   gain: number;
   sampleRate: number;
@@ -78,6 +78,7 @@ function sourceSentence(model: ReportModel): string {
 }
 
 function neckValue(model: ReportModel): string {
+  if (model.neckCount == null) return "Not entered.";
   const count = `${model.neckCount} ${model.neckCount === 1 ? "neck" : "necks"}`;
   if (model.neckWidthMm == null || model.neckLengthMm == null) {
     return `${count}. Width and length are blank on this run.`;
@@ -238,15 +239,15 @@ export function compileReport(model: ReportModel): CompiledReport {
 
   const cellRows: ReportRow[] = [
     { label: "Metal", value: model.materialName },
-    { label: "Thickness", value: `${model.thicknessMm.toFixed(2)} mm` },
+    { label: "Thickness", value: model.thicknessMm == null ? "Not entered" : `${model.thicknessMm.toFixed(2)} mm` },
     { label: "Necks", value: neckValue(model) },
-    { label: "Gauge", value: `${model.gaugeName}, factor ${model.gaugeFactor.toFixed(2)}` },
+    { label: "Gauge", value: model.gaugeFactor == null ? model.gaugeName : `${model.gaugeName}, factor ${model.gaugeFactor.toFixed(2)}` },
     {
       label: "Gauge resistance",
       value: model.resistanceOhm == null ? "Not entered" : `${model.resistanceOhm.toLocaleString("en-US")} Ω`,
     },
-    { label: "Bridge", value: BRIDGE_LABEL[model.bridge] },
-    { label: "Gauge placement", value: MOUNT_LABEL[model.gaugeMount] },
+    { label: "Bridge", value: model.bridge ? BRIDGE_LABEL[model.bridge] : "Not chosen" },
+    { label: "Gauge placement", value: model.gaugeMount ? MOUNT_LABEL[model.gaugeMount] : "Not chosen" },
     { label: "Board", value: model.frontLabel },
     { label: "Gain", value: `${model.gain}×` },
     { label: "Live sample rate", value: `${model.sampleRate} Hz` },

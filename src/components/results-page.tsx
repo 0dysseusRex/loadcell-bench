@@ -15,12 +15,12 @@ export function ResultsPage({ onBack }: { onBack: () => void }) {
 
   const report = compileReport({
     cellName: bench.cellName,
-    materialName: materialById(bench.materialId).name,
+    materialName: bench.materialId ? materialById(bench.materialId).name : "Not chosen",
     thicknessMm: bench.thicknessMm,
     neckCount: bench.neckCount,
     neckWidthMm: bench.neckWidth,
     neckLengthMm: bench.neckLength,
-    gaugeName: gaugeById(bench.gaugeId).name,
+    gaugeName: bench.gaugeId ? gaugeById(bench.gaugeId).name : "Not chosen",
     gaugeFactor: bench.gaugeFactor,
     resistanceOhm: bench.resistanceOhm,
     bridge: bench.bridge,

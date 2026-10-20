@@ -12,12 +12,14 @@ const empty: GuideSnapshot = {
   hasRange: false,
 };
 
-test("a fresh bench has the name step open and nothing ready to compile", () => {
+test("a fresh bench starts by asking for the amp", () => {
   const status = guideStatus(empty);
-  assert.equal(status.name, false);
   assert.equal(status.connect, false);
-  assert.equal(nextGuideStep(status), "name");
+  assert.equal(nextGuideStep(status), "connect");
   assert.equal(readyToCompile(status), false);
+  const named = guideStatus({ ...empty, cellName: "Custom K2 Loadcell" });
+  assert.equal(named.name, true);
+  assert.equal(nextGuideStep(named), "connect");
 });
 
 test("streaming counts as watching the live reading", () => {

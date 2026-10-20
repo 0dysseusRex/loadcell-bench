@@ -15,16 +15,16 @@ import {
 
 const STEPS: { id: GuideStepId; tab: GuideTab; title: string; body: string }[] = [
   {
+    id: "connect",
+    tab: "build",
+    title: "Select the amp, then connect",
+    body: "The amp is the menu at the top right. Pick the board on your cable: H36 with a mini ADS1220, H36 with a mini HX717, or the alpha board with its own USB port. Then press Connect. Chrome or Edge is required for a real board. Use simulator if you want to practice with nothing plugged in.",
+  },
+  {
     id: "name",
     tab: "build",
     title: "Name the cell",
-    body: "A load cell is a small metal spring with foil sensors glued to it. Give this one a name you will recognize on the report, such as the printer it will live on. Metal, thickness, and neck size on this screen feed the stiffness calculator. Leave them when a built-in cell already matches what you have.",
-  },
-  {
-    id: "connect",
-    tab: "live",
-    title: "Connect a board, or practice",
-    body: "The buttons are at the top of the page. “Use simulator” runs the same screens with a pretend cell, so you can learn the steps with nothing plugged in. Connect talks to an H36 or an alpha board. Chrome or Edge is required for a real board. Match the menu to the chip on your cable before you connect.",
+    body: "A load cell is a small metal spring with foil sensors glued to it. On Build, give this one a name you will recognize on the report. The Custom K2 Loadcell button fills the worked example. CUSTOM LOADCELL leaves every field blank so you can type your own, or upload a cell file you saved before.",
   },
   {
     id: "live",

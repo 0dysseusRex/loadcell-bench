@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import Image from "next/image";
 import { BenchProvider, useBench, type Capture } from "@/components/bench-context";
 import { HowTo } from "@/components/how-to";
 import { ResultsPage } from "@/components/results-page";
+import { SketchUpload } from "@/components/sketch-upload";
 import { CellOutline } from "@/components/cell-outline";
 import { TraceChart } from "@/components/trace-chart";
 import { Badge } from "@/components/ui/badge";
@@ -25,7 +26,7 @@ import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { printerSnippet } from "@/lib/frontends";
-import { CELL, CELL_PROFILES, GAUGE_PRESETS, MATERIALS, NORMAL_RATES, TURBO_RATES, bendingStiffness, cellProfileById, estimateScale, gaugeById, materialById, rootGridFraction, type BridgeKind } from "@/lib/model";
+import { CELL_PROFILES, GAUGE_PRESETS, MATERIALS, NORMAL_RATES, TURBO_RATES, bendingStiffness, cellProfileById, estimateScale, gaugeById, materialById, rootGridFraction, type BridgeKind } from "@/lib/model";
 import { GOALS } from "@/lib/analyze";
 import { guideStatus, isGuideTab, readyToCompile, type GuideTab } from "@/lib/guide";
 
@@ -41,7 +42,7 @@ export function BenchApp() {
 
 function BenchShell() {
   const bench = useBench();
-  const [tab, setTab] = useState<GuideTab>("live");
+  const [tab, setTab] = useState<GuideTab>("build");
   const [view, setView] = useState<"bench" | "report">("bench");
   const compileReady = readyToCompile(
     guideStatus({
@@ -107,12 +108,15 @@ function BenchShell() {
             }}
           >
             <TabsList className="w-full justify-start overflow-x-auto">
+              <TabsTrigger value="build">Build</TabsTrigger>
               <TabsTrigger value="live">Live</TabsTrigger>
               <TabsTrigger value="speed">Speed</TabsTrigger>
               <TabsTrigger value="accuracy">Accuracy</TabsTrigger>
               <TabsTrigger value="range">Range</TabsTrigger>
-              <TabsTrigger value="build">Build</TabsTrigger>
             </TabsList>
+            <TabsContent value="build" className="mt-4">
+              <BuildPanel />
+            </TabsContent>
             <TabsContent value="live" className="mt-4">
               <LivePanel />
             </TabsContent>
@@ -124,9 +128,6 @@ function BenchShell() {
             </TabsContent>
             <TabsContent value="range" className="mt-4">
               <RangePanel />
-            </TabsContent>
-            <TabsContent value="build" className="mt-4">
-              <BuildPanel />
             </TabsContent>
           </Tabs>
         </main>
@@ -556,7 +557,13 @@ function AccuracyPanel() {
 function RangePanel() {
   const bench = useBench();
   const sketch =
-    bench.neckWidth != null && bench.neckLength != null
+    bench.neckWidth != null &&
+    bench.neckLength != null &&
+    bench.neckCount != null &&
+    bench.thicknessMm != null &&
+    bench.youngMpa != null &&
+    bench.gaugeFactor != null &&
+    bench.bridge != null
       ? estimateScale({
           neckWidthMm: bench.neckWidth,
           neckLengthMm: bench.neckLength,
@@ -671,7 +678,7 @@ function RangePanel() {
           {bench.noiseRmsEntered !== null && (
             <p className="text-xs text-[#6d675e]">Noise rms is the {bench.noiseRmsEntered.toFixed(1)} counts you typed. Measuring the floor replaces it.</p>
           )}
-          {sketch?.yieldKg != null && bench.neckWidth != null && bench.neckLength != null && (
+          {sketch?.yieldKg != null && bench.neckWidth != null && bench.neckLength != null && bench.neckCount != null && bench.thicknessMm != null && bench.materialId && (
             <p className="text-xs text-[#6d675e]">
               Optional leaf sketch in {materialById(bench.materialId).name}, {bench.neckCount} necks {bench.neckWidth.toFixed(1)} mm by {bench.neckLength.toFixed(0)} mm, {bench.thicknessMm.toFixed(2)} mm thick: about {sketch.yieldKg.toFixed(1)} kg before the material yields. That figure is only a ceiling for a leaf flexure.
             </p>
@@ -697,6 +704,7 @@ function BuildPanel() {
   const fileSlug = bench.cellName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "loadcell";
   return (
     <div className="space-y-4">
+      <SketchUpload />
       <BendingCalculator />
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
@@ -728,13 +736,16 @@ function BuildPanel() {
             <CardTitle className="text-base">Gauge on that flexure</CardTitle>
             <CardDescription>
               {bench.gaugeMount === "back-to-back"
-                ? "Two gauges on each neck, one on each face. The factor below is an assumption until the OEM gauge is identified."
-                : "Four gauges on one face, one neck each. The bending calculator supplies the alloy and the neck size."}
+                ? "Gauges sit back to back, one on each face of a neck."
+                : bench.gaugeMount === "same-face"
+                  ? "Gauges sit on one face. The bending calculator supplies the alloy and the neck size."
+                  : "Choose the foil and how the bridge is wired. The bending calculator supplies the alloy and the neck size."}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
             <Field label="Strain gauge">
               <NativeSelect value={bench.gaugeId} onChange={bench.setGaugeId}>
+                <option value="">Choose a gauge</option>
                 {GAUGE_PRESETS.map((gauge) => (
                   <option key={gauge.id} value={gauge.id}>
                     {gauge.name}
@@ -742,9 +753,10 @@ function BuildPanel() {
                 ))}
               </NativeSelect>
             </Field>
-            <p className="text-xs text-[#5c564c]">{gaugeById(bench.gaugeId).note}</p>
+            {bench.gaugeId && <p className="text-xs text-[#5c564c]">{gaugeById(bench.gaugeId).note}</p>}
             <Field label="Bridge">
-              <NativeSelect value={bench.bridge} onChange={(value) => bench.setBridge(value as BridgeKind)}>
+              <NativeSelect value={bench.bridge ?? ""} onChange={(value) => bench.setBridge(value === "" ? null : (value as BridgeKind))}>
+                <option value="">Choose a bridge</option>
                 <option value="full">Full bridge, 4 active gauges</option>
                 <option value="half">Half bridge, 2 active gauges</option>
                 <option value="quarter">Quarter bridge, 1 active gauge</option>
@@ -752,7 +764,14 @@ function BuildPanel() {
             </Field>
             <div className="grid gap-3 sm:grid-cols-2">
               <Field label="Gauge factor">
-                <Input type="number" step="0.01" min={0.1} value={bench.gaugeFactor} onChange={(event) => bench.setGaugeFactor(Number(event.target.value) || CELL.gauge.gaugeFactor)} />
+                <Input
+                  type="number"
+                  step="0.01"
+                  min={0.1}
+                  placeholder="from the package"
+                  value={bench.gaugeFactor ?? ""}
+                  onChange={(event) => bench.setGaugeFactor(event.target.value === "" ? null : Number(event.target.value))}
+                />
               </Field>
               <Field label="Resistance, ohms">
                 <Input
@@ -837,9 +856,9 @@ function BuildPanel() {
       </Card>
       <div className="space-y-3">
         <div>
-          <h2 className="text-base font-semibold">The K2 plate, as a worked example</h2>
+          <h2 className="text-base font-semibold">The Custom K2 Loadcell, as a worked example</h2>
           <p className="mt-1 max-w-2xl text-sm text-[#5c564c]">
-            38.0 × 24.0 mm, 0.100 in 6061-T6, four necks, four BA1000-3AA gauges on one face. The OEM cell is a different part: steel, two necks, gauges back to back, listed as 38 × 23.95 × 3 mm. Its neck size is not published.
+            The Custom K2 Loadcell is 38.0 × 24.0 mm, 0.100 in 6061-T6, four necks, four BA1000-3AA gauges on one face. The photos and the cut file below are that cell.
           </p>
         </div>
         <div className="grid gap-4 lg:grid-cols-2">
@@ -847,7 +866,7 @@ function BuildPanel() {
             <div className="relative aspect-[4/3] w-full">
               <Image src="/cell/gauges.jpg" alt="Four BA1000-3AA gauges bonded to the flexure arms with Loctite 401, red jumper wires, and a four-conductor cable" fill className="object-cover" sizes="(min-width: 1024px) 50vw, 100vw" />
             </div>
-            <figcaption className="px-3 py-2 text-xs text-[#5c564c]">Gauges bonded with Loctite 401. All four are on this face of the four-neck redesign.</figcaption>
+            <figcaption className="px-3 py-2 text-xs text-[#5c564c]">Gauges bonded with Loctite 401. All four are on this face of the Custom K2 Loadcell.</figcaption>
           </figure>
           <figure className="overflow-hidden rounded-xl border border-[#e0d8cc] bg-white">
             <div className="relative aspect-[4/3] w-full">
@@ -883,10 +902,54 @@ function BuildPanel() {
   );
 }
 
+function CellLibrary() {
+  const bench = useBench();
+  const fileRef = useRef<HTMLInputElement>(null);
+  return (
+    <div className="space-y-2 rounded-lg border border-[#e4ddd0] bg-[#f7f4ee] p-3">
+      <p className="text-sm text-[#3c3832]">Save this cell to a file, then upload it the next time you test. A copy also stays in this browser.</p>
+      <div className="flex flex-wrap gap-2">
+        <Button type="button" variant="secondary" onClick={bench.saveCurrentCell}>
+          Save this cell
+        </Button>
+        <Button type="button" variant="outline" onClick={() => fileRef.current?.click()}>
+          Upload a cell file
+        </Button>
+        <input
+          ref={fileRef}
+          type="file"
+          accept="application/json,.json"
+          className="sr-only"
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            event.target.value = "";
+            if (!file) return;
+            void file.text().then((text) => bench.loadCellFileText(text));
+          }}
+        />
+      </div>
+      {bench.savedCells.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {bench.savedCells.map((cell) => (
+            <span key={cell.id} className="inline-flex items-center gap-1">
+              <Button type="button" size="sm" variant="outline" onClick={() => bench.applySavedCell(cell.id)}>
+                {cell.file.name.trim() || "Untitled cell"}
+              </Button>
+              <button type="button" className="text-xs text-[#8a5a32] underline underline-offset-4" onClick={() => bench.removeSavedCell(cell.id)}>
+                Remove
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function BendingCalculator() {
   const bench = useBench();
   const bend =
-    bench.neckWidth != null && bench.neckLength != null
+    bench.neckWidth != null && bench.neckLength != null && bench.neckCount != null && bench.thicknessMm != null && bench.youngMpa != null
       ? bendingStiffness({
           youngMpa: bench.youngMpa,
           yieldMpa: bench.yieldMpa,
@@ -918,9 +981,11 @@ function BendingCalculator() {
           ))}
         </div>
         <p className="text-xs text-[#5c564c]">{cellProfileById(bench.cellProfileId).note}</p>
+        <CellLibrary />
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <Field label="Material">
             <NativeSelect value={bench.materialId} onChange={bench.setMaterialId}>
+              <option value="">Choose a material</option>
               {MATERIALS.map((material) => (
                 <option key={material.id} value={material.id}>
                   {material.name}
@@ -928,11 +993,35 @@ function BendingCalculator() {
               ))}
             </NativeSelect>
           </Field>
+          <Field label="Young's modulus, MPa">
+            <Input
+              type="number"
+              step="100"
+              min={1}
+              placeholder="from the alloy sheet"
+              value={bench.youngMpa ?? ""}
+              onChange={(event) => bench.setYoungMpa(event.target.value === "" ? null : Number(event.target.value))}
+            />
+          </Field>
           <Field label="Thickness, mm">
-            <Input type="number" step="0.01" min={0.2} value={bench.thicknessMm} onChange={(event) => bench.setThicknessMm(Number(event.target.value) || CELL.thicknessMm)} />
+            <Input
+              type="number"
+              step="0.01"
+              min={0.2}
+              placeholder="blank"
+              value={bench.thicknessMm ?? ""}
+              onChange={(event) => bench.setThicknessMm(event.target.value === "" ? null : Number(event.target.value))}
+            />
           </Field>
           <Field label="Neck count">
-            <Input type="number" step="1" min={1} value={bench.neckCount} onChange={(event) => bench.setNeckCount(Number(event.target.value) || CELL.defaultNeckCount)} />
+            <Input
+              type="number"
+              step="1"
+              min={1}
+              placeholder="blank"
+              value={bench.neckCount ?? ""}
+              onChange={(event) => bench.setNeckCount(event.target.value === "" ? null : Number(event.target.value))}
+            />
           </Field>
           <Field label="Neck width, mm">
             <Input
@@ -965,7 +1054,7 @@ function BendingCalculator() {
             />
           </Field>
         </div>
-        <p className="text-xs text-[#5c564c]">{materialById(bench.materialId).note}</p>
+        <p className="text-xs text-[#5c564c]">{bench.materialId ? materialById(bench.materialId).note : "Pick the alloy this flexure is cut from, or type a modulus and a yield."}</p>
         {bend ? (
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <Stat label="Young's modulus" value={`${bend.youngGpa.toFixed(1)} GPa`} />
@@ -974,7 +1063,11 @@ function BendingCalculator() {
             <Stat label="Yield load" value={bend.yieldKg == null ? "Needs a yield" : `${bend.yieldKg.toFixed(1)} kg`} />
           </div>
         ) : (
-          <p className="text-sm text-[#5c564c]">Neck width and length are blank, so the stiffness is not invented. Type them from a measurement.</p>
+          <p className="text-sm text-[#5c564c]">
+            {bench.neckWidth == null || bench.neckLength == null
+              ? "Neck width and length are blank, so the stiffness is not invented. Type them, or measure them on the sketch."
+              : "Pick a material or type a modulus, plus a thickness and a neck count, before the stiffness can be calculated."}
+          </p>
         )}
       </CardContent>
     </Card>
@@ -983,8 +1076,16 @@ function BendingCalculator() {
 
 function SketchPreview() {
   const bench = useBench();
-  if (bench.neckWidth == null || bench.neckLength == null) {
-    return <p className="text-sm text-[#5c564c]">The leaf scale waits for a neck width and length.</p>;
+  if (
+    bench.neckWidth == null ||
+    bench.neckLength == null ||
+    bench.neckCount == null ||
+    bench.thicknessMm == null ||
+    bench.youngMpa == null ||
+    bench.gaugeFactor == null ||
+    bench.bridge == null
+  ) {
+    return <p className="text-sm text-[#5c564c]">The leaf scale waits for a material, a thickness, a neck size, and a gauge factor.</p>;
   }
   const sketch = estimateScale({
     neckWidthMm: bench.neckWidth,
@@ -1125,7 +1226,7 @@ function ManualRange() {
 function BridgeNotes() {
   return (
     <div className="space-y-2 text-xs leading-relaxed text-[#5c564c]">
-      <p>The K2 cell uses four 1000 Ω gauges, gauge factor about 2.0, as a full bridge of two in tension and two in compression. Another cell can be a half or quarter bridge, or a different foil. The cable in the photos is red, green, blue, and black. Land those on the Plimsoll E+, E−, S+, and S− pads.</p>
+      <p>The Custom K2 Loadcell uses four 1000 Ω gauges, gauge factor about 2.0, as a full bridge of two in tension and two in compression. Another cell can be a half or quarter bridge, or a different foil. The cable in the photos is red, green, blue, and black. Land those on the Plimsoll E+, E−, S+, and S− pads.</p>
       <p>If pressing the nozzle side drives the live reading the wrong way, turn on Invert sign. Do not swap excitation with signal.</p>
       <p>Loctite 401 grabs fast and creeps. Loctite 9460 protects the grid and also changes the stiffness until it has cured. The 30 second hold is there to show that, not to hide it.</p>
       <svg viewBox="0 0 220 120" className="mt-2 w-full rounded-md border border-[#e4ddd0] bg-[#f7f4ee]" aria-label="Full bridge wiring">
