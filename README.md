@@ -1,5 +1,7 @@
 # Load cell bench
 
+The full guide to using the screens, reading the numbers, flashing the H36, and saving a cell is [GUIDE.md](GUIDE.md).
+
 A bench for any full-bridge load cell. The bridge plugs into a [Plimsoll](https://github.com/mulcmu/Plimsoll) ADC, which is either a mini board on a [FYSETC H36 Combo V2](https://github.com/FYSETC/H36_Combo_V2) or an alpha board with its own USB port. The K2 plate in this repo — laser-cut 6061-T6, four BA1000-3AA gauges, Loctite 401 under Loctite 9460 — is one worked example, not the only cell the tests accept.
 
 The board runs Klipper. This program speaks Klipper’s USB protocol from the browser and counts the samples that come back. It is the check you run before the cell goes on a printer. Three fronts are wired up:
