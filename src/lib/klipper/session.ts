@@ -8,7 +8,7 @@ import {
   type ParsedMessage,
   type ParamValue,
 } from "./codec";
-import { adsImage, adsInputByMux, decodeSamples, pulseTicks, restTicks } from "../ads1220";
+import { ADS_INPUTS, adsImage, adsInputByMux, decodeSamples, pulseTicks, restTicks } from "../ads1220";
 import { adsHeaderCheck, frontById, type FrontEnd } from "../frontends";
 import { hx717ConfigLines, hx717GainChannel, hx717RestTicks, isHxErrorSample } from "../hx717";
 import type { Sample, StreamOptions } from "../analyze";
@@ -135,7 +135,7 @@ export class H36Session {
       vref: opts.vref,
       mux: opts.mux,
     });
-    const mux = opts.mux ?? 0b0111;
+    const mux = opts.mux ?? ADS_INPUTS[0].mux;
     const input = adsInputByMux(mux);
     const writtenGain = mux >= 0b1000 ? 1 : opts.gain;
     this.log(

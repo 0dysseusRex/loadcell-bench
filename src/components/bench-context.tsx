@@ -202,7 +202,7 @@ export function BenchProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const [log, setLog] = useState<string[]>([]);
   const [mcuLine, setMcuLine] = useState("");
-  const [gain, setGainState] = useState(64);
+  const [gain, setGainState] = useState(ADS_INPUTS[0].unityGain ? 1 : 64);
   const [sampleRate, setSampleRateState] = useState(330);
   const [vref, setVrefState] = useState<Vref>("internal");
   const [mux, setMuxState] = useState(ADS_INPUTS[0].mux);
@@ -448,8 +448,9 @@ export function BenchProvider({ children }: { children: ReactNode }) {
     const next = frontById(id);
     setFrontState(next);
     frontRef.current = next;
-    setGainState(next.defaultGain);
-    gainRef.current = next.defaultGain;
+    const frontGain = ADS_INPUTS[0].unityGain && next.sensor === "ads1220" ? 1 : next.defaultGain;
+    setGainState(frontGain);
+    gainRef.current = frontGain;
     setSampleRateState(next.defaultRate);
     rateRef.current = next.defaultRate;
     setVrefState(next.vref);

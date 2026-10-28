@@ -325,7 +325,7 @@ function LivePanel() {
               </NativeSelect>
             </Field>
             <p className="text-xs leading-relaxed text-[#5c564c]">
-              Signal+ minus Signal− is the bridge. When a bend leaves that flat, read one wire at a time. Those choices drop the gain to 1 so 1.65 V stays on scale. Restart the stream after changing this.
+              AIN0 minus AIN1 is the pair that moves when this flexure bends. AIN2 and AIN3 sit near ground. The half-scale pairs drop the gain to 1 so 1.65 V stays on scale. Restart the stream after changing this.
             </p>
             </>
             )}
