@@ -65,7 +65,9 @@ The Plimsoll mini ADS1220 on an H36 Combo V2 uses software SPI:
 | MOSI | PB13 |
 | MISO | PA15 |
 
-The mini HX717 on the same header is not SPI. SCLK is PB7 and DOUT is PA15. The rate is a solder jumper, 320 Hz unless you moved it. Gain in the config is `A-128` or `A-64`.
+The mini HX717 on the same V2 header is not SPI. SCLK is PB7 and DOUT is PA15. The rate is a solder jumper, 320 Hz unless you moved it. Gain in the config is `A-128` or `A-64`.
+
+The menu also has H36 Combo (v1). That 2×6 header is not the V2 header. The mini ADS1220 uses hardware SPI `spi1a`: CS PB6, DRDY PC13, SCLK PB3, MOSI PB5, MISO PB4. The mini HX717 uses SCLK PB3 and DOUT PB4. Flash the v1 board as STM32G0B1, USB on PA11/PA12, startup pin `PA2`.
 
 The alpha board is its own MCU. Flash it as STM32F072, no bootloader, internal clock, USB on PA11/PA12. Optional startup pin PC7 for the power LED. The HX717 on that board uses SCLK PC1 and DOUT PC2. The internal clock is what the published sample config uses, and it can time out a probe; the speed test is where that shows up.
 

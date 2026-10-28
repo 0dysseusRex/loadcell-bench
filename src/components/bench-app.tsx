@@ -25,7 +25,7 @@ import { Separator } from "@/components/ui/separator";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { printerSnippet } from "@/lib/frontends";
+import { FRONTS, printerSnippet } from "@/lib/frontends";
 import { CELL_PROFILES, GAUGE_PRESETS, MATERIALS, NORMAL_RATES, TURBO_RATES, bendingStiffness, cellProfileById, estimateScale, gaugeById, materialById, rootGridFraction, type BridgeKind } from "@/lib/model";
 import { GOALS } from "@/lib/analyze";
 import { guideStatus, isGuideTab, readyToCompile, type GuideTab } from "@/lib/guide";
@@ -142,10 +142,12 @@ function ConnectBar() {
   return (
     <div className="flex flex-col items-stretch gap-2 sm:items-end">
       <div className="flex flex-wrap gap-2">
-        <NativeSelect className="w-52 sm:w-56" value={bench.front.id} onChange={bench.setFront} disabled={bench.mode !== "idle" || bench.phase === "busy"}>
-          <option value="h36-ads1220">H36 + mini ADS1220</option>
-          <option value="h36-hx717">H36 + mini HX717</option>
-          <option value="alpha-hx717">Alpha USB + HX717</option>
+        <NativeSelect className="w-64 sm:w-72" value={bench.front.id} onChange={bench.setFront} disabled={bench.mode !== "idle" || bench.phase === "busy"}>
+          {FRONTS.map((front) => (
+            <option key={front.id} value={front.id}>
+              {front.label}
+            </option>
+          ))}
         </NativeSelect>
         {bench.mode !== "mcu" && (
           <Button onClick={() => void bench.connectBoard()} disabled={bench.phase === "connecting" || bench.phase === "busy"}>
