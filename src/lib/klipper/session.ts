@@ -8,7 +8,7 @@ import {
   type ParsedMessage,
   type ParamValue,
 } from "./codec";
-import { adsImage, decodeSamples, pulseTicks, restTicks } from "../ads1220";
+import { adsImage, adsInputByMux, decodeSamples, pulseTicks, restTicks } from "../ads1220";
 import { adsHeaderCheck, frontById, type FrontEnd } from "../frontends";
 import { hx717ConfigLines, hx717GainChannel, hx717RestTicks, isHxErrorSample } from "../hx717";
 import type { Sample, StreamOptions } from "../analyze";
@@ -133,8 +133,14 @@ export class H36Session {
       gain: opts.gain,
       sampleRate: opts.sampleRate,
       vref: opts.vref,
+      mux: opts.mux,
     });
-    this.log(`Resetting the ADS1220, gain ${opts.gain}, ${opts.sampleRate} Hz, ${opts.vref} reference`);
+    const mux = opts.mux ?? 0b0111;
+    const input = adsInputByMux(mux);
+    const writtenGain = mux >= 0b1000 ? 1 : opts.gain;
+    this.log(
+      `Resetting the ADS1220, ${input.label}, gain ${writtenGain}, ${opts.sampleRate} Hz, ${opts.vref} reference`,
+    );
     await this.spiSend(image.reset);
     await delay(8);
     const booted = await this.spiRead(image.read);

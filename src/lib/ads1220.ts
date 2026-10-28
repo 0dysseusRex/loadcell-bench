@@ -8,12 +8,34 @@ export const ADS_RREG = 0x20;
 export const ADS_WREG = 0x40;
 export const FULL_SCALE_COUNTS = 0x7fffff;
 
+export type AdsInput = {
+  id: string;
+  mux: number;
+  label: string;
+  /** This pair sits near half the excitation, so gain 1 is the on-scale setting. */
+  unityGain: boolean;
+};
+
+/** Plimsoll schematic pair first. The others are the bend check when that pair sits still. */
+export const ADS_INPUTS: readonly AdsInput[] = [
+  { id: "AIN3_AIN2", mux: 0b0111, label: "Signal+ minus Signal−", unityGain: false },
+  { id: "AIN3_AVSS", mux: 0b1011, label: "Signal+ to ground", unityGain: true },
+  { id: "AIN2_AVSS", mux: 0b1010, label: "Signal− to ground", unityGain: true },
+  { id: "AIN0_AIN1", mux: 0b0000, label: "AIN0 minus AIN1", unityGain: true },
+  { id: "AIN0_AVSS", mux: 0b1000, label: "AIN0 to ground", unityGain: true },
+  { id: "AIN1_AVSS", mux: 0b1001, label: "AIN1 to ground", unityGain: true },
+];
+
+export function adsInputByMux(mux: number): AdsInput {
+  return ADS_INPUTS.find((input) => input.mux === mux) ?? ADS_INPUTS[0];
+}
+
 export type AdsConfig = {
   gain: number;
   sampleRate: number;
   /**
    * Klipper input_mux nibble. The Plimsoll mini board wires Signal+ to AIN3
-   * and Signal- to AIN2. AIN0 and AIN1 are open, so the default is AIN3_AIN2.
+   * and Signal- to AIN2, so the default is AIN3_AIN2.
    */
   mux?: number;
   vref: "internal" | "analog_supply";
@@ -39,9 +61,12 @@ export function adsImage(config: AdsConfig): AdsImage {
   const gain = gainCode(config.gain);
   const { index, turbo } = rateCode(config.sampleRate);
   const mux = config.mux ?? 0b0111;
-  const pgaBypass = config.pgaBypass ? 1 : 0;
+  // A measurement to AVSS sits on the rail. The PGA has to be bypassed, and bypass requires gain 1.
+  const toGround = (mux & 0xf) >= 0b1000;
+  const pgaBypass = toGround || config.pgaBypass ? 1 : 0;
+  const appliedGain = toGround ? 0 : gain;
   const regs: [number, number, number, number] = [
-    ((mux & 0xf) << 4) | (gain << 1) | pgaBypass,
+    ((mux & 0xf) << 4) | (appliedGain << 1) | pgaBypass,
     (index << 5) | ((turbo ? 0x2 : 0) << 3) | (0x1 << 2),
     (VREF[config.vref] & 0x3) << 6,
     0x00,

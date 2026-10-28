@@ -23,6 +23,20 @@ test("330 Hz stays in normal mode", () => {
   assert.equal(image.regs[2], 0xc0);
 });
 
+test("a sense wire to ground bypasses the PGA at gain 1", () => {
+  const image = adsImage({ gain: 128, sampleRate: 330, vref: "analog_supply", mux: 0b1011 });
+  // AIN3_AVSS is 0xB0, gain code 0, PGA bypassed
+  assert.equal(image.regs[0], 0xb1);
+  assert.equal(image.regs[1], 0x84);
+  assert.equal(image.regs[2], 0xc0);
+});
+
+test("AIN0 minus AIN1 is mux 0 at the requested gain", () => {
+  const image = adsImage({ gain: 1, sampleRate: 20, vref: "analog_supply", mux: 0 });
+  assert.equal(image.regs[0], 0x00);
+  assert.equal(image.regs[1], 0x04);
+});
+
 test("samples are sign-extended 24-bit little endian", () => {
   const bytes = new Uint8Array([
     0x78, 0x56, 0x34, 0x00, // +0x345678

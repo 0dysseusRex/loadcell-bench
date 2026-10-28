@@ -25,6 +25,7 @@ import { Separator } from "@/components/ui/separator";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ADS_INPUTS } from "@/lib/ads1220";
 import { FRONTS, printerSnippet } from "@/lib/frontends";
 import { CELL_PROFILES, GAUGE_PRESETS, MATERIALS, NORMAL_RATES, TURBO_RATES, bendingStiffness, cellProfileById, estimateScale, gaugeById, materialById, rootGridFraction, type BridgeKind } from "@/lib/model";
 import { GOALS } from "@/lib/analyze";
@@ -307,12 +308,26 @@ function LivePanel() {
                 The HX717 is ratiometric. Excitation is the reference, so supply drift cancels. Channel B is not the bridge and is not offered here.
               </p>
             ) : (
+            <>
             <Field label="Reference">
               <NativeSelect value={bench.vref} onChange={(v) => bench.setVref(v as "internal" | "analog_supply")} disabled={bench.phase === "busy"}>
                 <option value="internal">Internal 2.048 V</option>
                 <option value="analog_supply">Analog supply, ratiometric</option>
               </NativeSelect>
             </Field>
+            <Field label="Input">
+              <NativeSelect value={String(bench.mux)} onChange={(v) => bench.setMux(Number(v))} disabled={bench.phase === "busy"}>
+                {ADS_INPUTS.map((input) => (
+                  <option key={input.id} value={input.mux}>
+                    {input.label}
+                  </option>
+                ))}
+              </NativeSelect>
+            </Field>
+            <p className="text-xs leading-relaxed text-[#5c564c]">
+              Signal+ minus Signal− is the bridge. When a bend leaves that flat, read one wire at a time. Those choices drop the gain to 1 so 1.65 V stays on scale. Restart the stream after changing this.
+            </p>
+            </>
             )}
             <div className="flex items-center justify-between gap-3 pt-1">
               <Label htmlFor="invert">Invert sign</Label>

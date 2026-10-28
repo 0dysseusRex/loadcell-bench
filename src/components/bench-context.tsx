@@ -30,7 +30,7 @@ import {
   type SpeedResult,
   type StreamOptions,
 } from "@/lib/analyze";
-import { isSaturated } from "@/lib/ads1220";
+import { adsInputByMux, ADS_INPUTS, isSaturated } from "@/lib/ads1220";
 import { H36Session } from "@/lib/klipper/session";
 import { FRONTS, frontById, type FrontEnd } from "@/lib/frontends";
 import { cellFileName, loadSavedCells, parseCellFile, upsertSavedCell, writeSavedCells, type CellFile, type GaugeMark, type SavedCell } from "@/lib/cell-file";
@@ -77,6 +77,8 @@ type BenchApi = {
   setSampleRate: (rate: number) => void;
   vref: Vref;
   setVref: (vref: Vref) => void;
+  mux: number;
+  setMux: (mux: number) => void;
   invert: boolean;
   setInvert: (invert: boolean) => void;
   tare: number | null;
@@ -203,6 +205,7 @@ export function BenchProvider({ children }: { children: ReactNode }) {
   const [gain, setGainState] = useState(64);
   const [sampleRate, setSampleRateState] = useState(330);
   const [vref, setVrefState] = useState<Vref>("internal");
+  const [mux, setMuxState] = useState(ADS_INPUTS[0].mux);
   const [invert, setInvertState] = useState(false);
   const [tare, setTare] = useState<number | null>(null);
   const [countsPerGram, setCountsPerGram] = useState<number | null>(null);
@@ -257,6 +260,8 @@ export function BenchProvider({ children }: { children: ReactNode }) {
   const frontRef = useRef(front);
   const rateRef = useRef(sampleRate);
   const vrefRef = useRef(vref);
+  const muxRef = useRef(mux);
+  const keptGainRef = useRef(gain);
   const invertRef = useRef(invert);
   const neckWRef = useRef(neckWidth);
   const neckLRef = useRef(neckLength);
@@ -266,6 +271,7 @@ export function BenchProvider({ children }: { children: ReactNode }) {
   frontRef.current = front;
   rateRef.current = sampleRate;
   vrefRef.current = vref;
+  muxRef.current = mux;
   invertRef.current = invert;
   neckWRef.current = neckWidth;
   neckLRef.current = neckLength;
@@ -361,7 +367,7 @@ export function BenchProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const opts = useCallback((): StreamOptions => {
-    return { gain: gainRef.current, sampleRate: rateRef.current, vref: vrefRef.current };
+    return { gain: gainRef.current, sampleRate: rateRef.current, vref: vrefRef.current, mux: muxRef.current };
   }, []);
 
   const signedMean = useCallback((samples: Sample[]) => {
@@ -448,6 +454,9 @@ export function BenchProvider({ children }: { children: ReactNode }) {
     rateRef.current = next.defaultRate;
     setVrefState(next.vref);
     vrefRef.current = next.vref;
+    setMuxState(ADS_INPUTS[0].mux);
+    muxRef.current = ADS_INPUTS[0].mux;
+    keptGainRef.current = next.defaultGain;
     setSpeedRates(next.speedRates);
     setSpeedResults([]);
     setCaptures([]);
@@ -588,7 +597,7 @@ export function BenchProvider({ children }: { children: ReactNode }) {
         setBusyLabel(`Trying gain ${candidate}`);
         setGainState(candidate);
         gainRef.current = candidate;
-        await source.start({ gain: candidate, sampleRate: probeRate, vref: vrefRef.current });
+        await source.start({ gain: candidate, sampleRate: probeRate, vref: vrefRef.current, mux: muxRef.current });
         const { samples } = await collectSamples(source.subscribe.bind(source), 0.45, undefined, () => abortRef.current);
         const sign = invertRef.current ? -1 : 1;
         const xs = samples.map((s) => s.counts * sign);
@@ -608,7 +617,7 @@ export function BenchProvider({ children }: { children: ReactNode }) {
       setGainState(chosen);
       gainRef.current = chosen;
       pushLog(`Auto gain settled on ${chosen}.`);
-      await source.start({ gain: chosen, sampleRate: rateRef.current, vref: vrefRef.current });
+      await source.start({ gain: chosen, sampleRate: rateRef.current, vref: vrefRef.current, mux: muxRef.current });
       setPhase("streaming");
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -639,7 +648,7 @@ export function BenchProvider({ children }: { children: ReactNode }) {
       for (const rate of ordered) {
         if (abortRef.current) break;
         setBusyLabel(`${rate} Hz`);
-        await source.start({ gain: gainRef.current, sampleRate: rate, vref: vrefRef.current });
+        await source.start({ gain: gainRef.current, sampleRate: rate, vref: vrefRef.current, mux: muxRef.current });
         const { samples, durationSec } = await collectSamples(
           source.subscribe.bind(source),
           speedSeconds,
@@ -1118,6 +1127,21 @@ export function BenchProvider({ children }: { children: ReactNode }) {
     setVref: (value) => {
       setVrefState(value);
       vrefRef.current = value;
+    },
+    mux,
+    setMux: (value) => {
+      const next = adsInputByMux(value);
+      const prev = adsInputByMux(muxRef.current);
+      if (next.unityGain && !prev.unityGain && gainRef.current !== 1) {
+        keptGainRef.current = gainRef.current;
+        setGainState(1);
+        gainRef.current = 1;
+      } else if (!next.unityGain && prev.unityGain && keptGainRef.current !== 1) {
+        setGainState(keptGainRef.current);
+        gainRef.current = keptGainRef.current;
+      }
+      setMuxState(next.mux);
+      muxRef.current = next.mux;
     },
     invert,
     setInvert: setInvertState,
