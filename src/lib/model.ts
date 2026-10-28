@@ -323,12 +323,15 @@ export function estimateScale(input: ScaleInput): ScaleEstimate {
   };
 }
 
-/** H36 Combo V2 2×6 header. The mini ADS1220 is software SPI on these pins. */
+/**
+ * H36 Combo V2 2×6 header. The mini ADS1220 is software SPI on these pins.
+ * MOSI is PA13 (P2 pin 3, also SWDIO). PB13 is the HE0 heater, not the header.
+ */
 export const H36_PINS = {
   cs: "PA14",
   drdy: "PA1",
   sclk: "PB7",
-  mosi: "PB13",
+  mosi: "PA13",
   miso: "PA15",
 } as const;
 

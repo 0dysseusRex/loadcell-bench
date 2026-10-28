@@ -174,7 +174,7 @@ Connect is for a board that is already running Klipper USB firmware. The flash s
 
 After the port opens, the page reads the Klipper command dictionary, checks that the sensor commands and the pins exist, and sends a one-sensor config.
 
-For an H36 Combo V2 ADS1220 that config is software SPI: chip select PA14, data ready PA1, clock PB7, MOSI PB13, MISO PA15, SPI mode 1, a bit under 256 kHz. An H36 Combo (v1) ADS1220 uses hardware SPI bus spi1a instead: chip select PB6, data ready PC13, clock PB3, MOSI PB5, MISO PB4. Object ids are fixed: the SPI bus is 0 and the ADS1220 is 1.
+For an H36 Combo V2 ADS1220 that config is software SPI: chip select PA14, data ready PA1, clock PB7, MOSI PA13, MISO PA15, SPI mode 1, a bit under 256 kHz. An H36 Combo (v1) ADS1220 uses hardware SPI bus spi1a instead: chip select PB6, data ready PC13, clock PB3, MOSI PB5, MISO PB4. Object ids are fixed: the SPI bus is 0 and the ADS1220 is 1.
 
 For an HX717 the config is `config_hx71x` on the pins for that board. Gain is part of that config. Set A-128 or A-64 before you press Connect. Changing it later means disconnect, change the gain, and connect again. Channel B is not the bridge. Only A-128 and A-64 are offered.
 
@@ -299,8 +299,10 @@ Seat the mini board on the 2×6 header before you care about samples.
 | CS | PA14 |
 | DRDY | PA1 |
 | SCLK | PB7 |
-| MOSI | PB13 |
+| MOSI | PA13 |
 | MISO | PA15 |
+
+PA13 is header MOSI. PB13 is the heater, so clocking PB13 never reaches the ADS1220.
 
 | Mini HX717 signal | H36 Combo V2 pin |
 | --- | --- |
@@ -357,7 +359,7 @@ This firmware has no `config_ads1220` or no `config_hx71x`. The extras were turn
 
 A pin is not available. The firmware’s pin list does not include the header for the menu entry you picked. Combo v1 is a G0B1 build. Combo V2 is a G431 build. The alpha board is an F072 build.
 
-ADS1220 did not reset, or rejected the register write. The message names the pins for the menu entry you picked. On Combo V2 that is CS PA14, SCLK PB7, MOSI PB13, MISO PA15, and DRDY PA1. On Combo v1 that is CS PB6, SCLK PB3, MOSI PB5, MISO PB4, and DRDY PC13. Seat the mini board, and confirm the menu is the board you actually have.
+ADS1220 did not reset, or rejected the register write. The message names the pins for the menu entry you picked. On Combo V2 that is CS PA14, SCLK PB7, MOSI PA13, MISO PA15, and DRDY PA1. On Combo v1 that is CS PB6, SCLK PB3, MOSI PB5, MISO PB4, and DRDY PC13. Seat the mini board, and confirm the menu is the board you actually have.
 
 The first Connect resets the board and tells you to connect again. That is the printer’s old config being cleared. Connect a second time.
 

@@ -61,7 +61,7 @@ export const FRONTS: FrontEnd[] = [
     settingsNote: "Restart the stream after changing these. Auto gain walks 1 to 128 and stops before the offset hits the rail.",
     steps: [
       "Flash the H36 Combo V2 USB build: STM32G431, no bootloader, 12 MHz crystal, USB on PA11/PA12, startup pin PA2.",
-      "Seat the Plimsoll mini ADS1220 on the V2 2×6 header. Software SPI uses PA14 CS, PA1 DRDY, PB7 SCLK, PB13 MOSI, PA15 MISO.",
+      "Seat the Plimsoll mini ADS1220 on the V2 2×6 header. Software SPI uses PA14 CS, PA1 DRDY, PB7 SCLK, PA13 MOSI, PA15 MISO.",
       "Copy the config below into the printer. Run LOAD_CELL_DIAGNOSTIC, then LOAD_CELL_CALIBRATE.",
       "Prove taps with LOAD_CELL_TEST_TAP before a real probe. Keep the nozzle near 140°C so ooze is not the contact.",
       "Pressure advance is a later experiment. If the range test says the cell is a force-trace candidate, log nozzle force during an extrusion move. Mainline Klipper does not compute pressure advance from a load cell by itself.",

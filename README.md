@@ -62,8 +62,10 @@ The Plimsoll mini ADS1220 on an H36 Combo V2 uses software SPI:
 | CS | PA14 |
 | DRDY | PA1 |
 | SCLK | PB7 |
-| MOSI | PB13 |
+| MOSI | PA13 |
 | MISO | PA15 |
+
+PA13 is the MOSI pin on that header. PB13 is the heater MOSFET.
 
 The mini HX717 on the same V2 header is not SPI. SCLK is PB7 and DOUT is PA15. The rate is a solder jumper, 320 Hz unless you moved it. Gain in the config is `A-128` or `A-64`.
 

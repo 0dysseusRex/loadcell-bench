@@ -52,7 +52,7 @@ test("printer snippets name the right MCU pins", () => {
   assert.match(ads, /sensor_type: ads1220/);
   assert.match(ads, /cs_pin: toolhead:PA14/);
   assert.match(ads, /spi_software_sclk_pin: toolhead:PB7/);
-  assert.match(ads, /spi_software_mosi_pin: toolhead:PB13/);
+  assert.match(ads, /spi_software_mosi_pin: toolhead:PA13/);
   assert.match(ads, /spi_software_miso_pin: toolhead:PA15/);
   assert.match(ads, /data_ready_pin: toolhead:PA1/);
   assert.doesNotMatch(ads, /spi_bus:/);
