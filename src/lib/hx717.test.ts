@@ -55,6 +55,7 @@ test("printer snippets name the right MCU pins", () => {
   assert.match(ads, /spi_software_mosi_pin: toolhead:PA13/);
   assert.match(ads, /spi_software_miso_pin: toolhead:PA15/);
   assert.match(ads, /data_ready_pin: toolhead:PA1/);
+  assert.match(ads, /input_mux: AIN3_AIN2/);
   assert.doesNotMatch(ads, /spi_bus:/);
   assert.doesNotMatch(ads, /hx717/);
   const v1 = printerSnippet({ ...shared, gain: 64, sampleRate: 330, vref: "internal", front: frontById("h36v1-ads1220") });

@@ -11,7 +11,10 @@ export const FULL_SCALE_COUNTS = 0x7fffff;
 export type AdsConfig = {
   gain: number;
   sampleRate: number;
-  /** Klipper input_mux. The Plimsoll board presents the bridge on AIN0/AIN1. */
+  /**
+   * Klipper input_mux nibble. The Plimsoll mini board wires Signal+ to AIN3
+   * and Signal- to AIN2. AIN0 and AIN1 are open, so the default is AIN3_AIN2.
+   */
   mux?: number;
   vref: "internal" | "analog_supply";
   pgaBypass?: boolean;
@@ -35,7 +38,7 @@ const VREF: Record<AdsConfig["vref"], number> = {
 export function adsImage(config: AdsConfig): AdsImage {
   const gain = gainCode(config.gain);
   const { index, turbo } = rateCode(config.sampleRate);
-  const mux = config.mux ?? 0;
+  const mux = config.mux ?? 0b0111;
   const pgaBypass = config.pgaBypass ? 1 : 0;
   const regs: [number, number, number, number] = [
     ((mux & 0xf) << 4) | (gain << 1) | pgaBypass,

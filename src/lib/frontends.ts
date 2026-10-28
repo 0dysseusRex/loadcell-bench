@@ -248,6 +248,7 @@ cs_pin: ${mcu}:${front.cs}
 data_ready_pin: ${mcu}:${front.drdy}
 ${spi}
 spi_speed: 256000
+input_mux: AIN3_AIN2
 gain: ${input.gain}
 sample_rate: ${input.sampleRate}
 vref: ${input.vref}
