@@ -1,6 +1,8 @@
 # Load cell bench
 
-The full guide to using the screens, reading the numbers, flashing the H36, and saving a cell is [GUIDE.md](GUIDE.md).
+![Load cell bench. The test guide is on the left, Build is open, and the amp menu is at the top right.](wiki/images/app.png)
+
+The wiki walks every screen in the order you test a cell, with a screenshot of each one: [wiki/README.md](wiki/README.md). The Custom K2 Loadcell plate is a hardware sub-project there, with its own build guide.
 
 A bench for any full-bridge load cell. The bridge plugs into a [Plimsoll](https://github.com/mulcmu/Plimsoll) ADC, which is either a mini board on a [FYSETC H36 Combo V2](https://github.com/FYSETC/H36_Combo_V2) or an alpha board with its own USB port. The K2 plate in this repo — laser-cut 6061-T6, four BA1000-3AA gauges, Loctite 401 under Loctite 9460 — is one worked example, not the only cell the tests accept.
 
