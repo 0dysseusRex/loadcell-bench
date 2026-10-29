@@ -25,7 +25,8 @@ import { Separator } from "@/components/ui/separator";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { printerSnippet } from "@/lib/frontends";
+import { wiringLabel } from "@/lib/wiring";
+import { FRONTS, printerSnippet } from "@/lib/frontends";
 import { CELL_PROFILES, GAUGE_PRESETS, MATERIALS, NORMAL_RATES, TURBO_RATES, bendingStiffness, cellProfileById, estimateScale, gaugeById, materialById, rootGridFraction, type BridgeKind } from "@/lib/model";
 import { GOALS } from "@/lib/analyze";
 import { guideStatus, isGuideTab, readyToCompile, type GuideTab } from "@/lib/guide";
@@ -73,6 +74,7 @@ function BenchShell() {
               {bench.cellName.trim() || "Unnamed load cell"}
             </p>
             <h1 className="mt-1 text-2xl font-semibold tracking-tight sm:text-3xl">Load cell bench</h1>
+            <p className="mt-1 text-sm font-medium text-[#3c3832]">For testing 4-wire load cells.</p>
             <p className="mt-1 max-w-xl text-sm text-[#5c564c]">
               Stream a Plimsoll ADC over Klipper USB and measure rate, accuracy, and range before the cell goes on a printer.
             </p>
@@ -142,10 +144,12 @@ function ConnectBar() {
   return (
     <div className="flex flex-col items-stretch gap-2 sm:items-end">
       <div className="flex flex-wrap gap-2">
-        <NativeSelect className="w-52 sm:w-56" value={bench.front.id} onChange={bench.setFront} disabled={bench.mode !== "idle" || bench.phase === "busy"}>
-          <option value="h36-ads1220">H36 + mini ADS1220</option>
-          <option value="h36-hx717">H36 + mini HX717</option>
-          <option value="alpha-hx717">Alpha USB + HX717</option>
+        <NativeSelect className="w-64 sm:w-72" value={bench.front.id} onChange={bench.setFront} disabled={bench.mode !== "idle" || bench.phase === "busy"}>
+          {FRONTS.map((front) => (
+            <option key={front.id} value={front.id}>
+              {front.label}
+            </option>
+          ))}
         </NativeSelect>
         {bench.mode !== "mcu" && (
           <Button onClick={() => void bench.connectBoard()} disabled={bench.phase === "connecting" || bench.phase === "busy"}>
@@ -181,6 +185,83 @@ function StatusBadge() {
   if (bench.phase === "busy") return <Badge variant="secondary">Working</Badge>;
   if (bench.phase === "connecting") return <Badge variant="secondary">Opening USB</Badge>;
   return <Badge variant="outline">{bench.mode === "sim" ? "Simulator idle" : `${bench.front.short} idle`}</Badge>;
+}
+
+function WiringCheck() {
+  const bench = useBench();
+  if (bench.front.sensor !== "ads1220") return null;
+  const running = bench.phase === "busy";
+  const report = bench.wiringReport;
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Check wiring</CardTitle>
+        <CardDescription>
+          Reads each ADS1220 input with the cell empty, then again with a load on it. Gain 1 and the analog supply make 1.65 V about 4.2 million counts.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {bench.wiringPhase === "idle" && (
+          <Button onClick={() => void bench.runWiringEmpty()} disabled={bench.mode === "idle" || running}>
+            Read the empty cell
+          </Button>
+        )}
+        {bench.wiringPhase === "await-load" && (
+          <>
+            <p className="text-sm leading-relaxed text-[#3c3832]">
+              Empty readings are in. Put a steady load on the cell, then read it again.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <Button onClick={() => void bench.runWiringLoaded()} disabled={running}>
+                Read the loaded cell
+              </Button>
+              <Button variant="ghost" onClick={bench.clearWiring} disabled={running}>
+                Start over
+              </Button>
+            </div>
+          </>
+        )}
+        {bench.wiringPhase === "done" && report && (
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant={report.ok ? "default" : "destructive"}>{report.ok ? "Working" : "Issue"}</Badge>
+              <p className="text-sm font-medium text-[#1c1915]">{report.title}</p>
+            </div>
+            {report.detail.map((paragraph) => (
+              <p key={paragraph} className="text-sm leading-relaxed text-[#3c3832]">
+                {paragraph}
+              </p>
+            ))}
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="text-[11px] tracking-wide text-[#6d675e] uppercase">
+                  <tr>
+                    <th className="py-1 pr-2 font-medium">Input</th>
+                    <th className="py-1 pr-2 font-medium">Empty</th>
+                    <th className="py-1 pr-2 font-medium">Loaded</th>
+                    <th className="py-1 font-medium">Change</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {report.rows.map((row) => (
+                    <tr key={row.label} className="border-t border-[#eee6d8]">
+                      <td className="py-1 pr-2">{row.label}</td>
+                      <td className="py-1 pr-2 font-mono tabular-nums">{fmtCounts(row.rest)}</td>
+                      <td className="py-1 pr-2 font-mono tabular-nums">{fmtCounts(row.load)}</td>
+                      <td className="py-1 font-mono tabular-nums">{fmtCounts(row.change)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <Button variant="outline" onClick={bench.clearWiring} disabled={running}>
+              Run again
+            </Button>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
 }
 
 function LivePanel() {
@@ -257,6 +338,7 @@ function LivePanel() {
         </CardContent>
       </Card>
       <div className="space-y-4">
+        <WiringCheck />
         <Card>
           <CardHeader>
             <CardTitle className="text-base">{bench.front.sensor === "hx717" ? "HX717" : "ADS1220"}</CardTitle>
@@ -305,12 +387,17 @@ function LivePanel() {
                 The HX717 is ratiometric. Excitation is the reference, so supply drift cancels. Channel B is not the bridge and is not offered here.
               </p>
             ) : (
+            <>
             <Field label="Reference">
               <NativeSelect value={bench.vref} onChange={(v) => bench.setVref(v as "internal" | "analog_supply")} disabled={bench.phase === "busy"}>
                 <option value="internal">Internal 2.048 V</option>
                 <option value="analog_supply">Analog supply, ratiometric</option>
               </NativeSelect>
             </Field>
+            <p className="text-xs leading-relaxed text-[#5c564c]">
+              Live pair: {wiringLabel(bench.mux)}. Check wiring, above, reads the other pins.
+            </p>
+            </>
             )}
             <div className="flex items-center justify-between gap-3 pt-1">
               <Label htmlFor="invert">Invert sign</Label>

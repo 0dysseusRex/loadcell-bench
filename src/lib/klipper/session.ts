@@ -8,8 +8,9 @@ import {
   type ParsedMessage,
   type ParamValue,
 } from "./codec";
-import { adsImage, decodeSamples, pulseTicks, restTicks } from "../ads1220";
-import { frontById, type FrontEnd } from "../frontends";
+import { ADS_INPUTS, adsImage, decodeSamples, pulseTicks, restTicks } from "../ads1220";
+import { wiringLabel } from "../wiring";
+import { adsHeaderCheck, frontById, type FrontEnd } from "../frontends";
 import { hx717ConfigLines, hx717GainChannel, hx717RestTicks, isHxErrorSample } from "../hx717";
 import type { Sample, StreamOptions } from "../analyze";
 
@@ -25,7 +26,7 @@ type Waiter = {
 const SPI_HZ = 256000;
 
 /**
- * Talks to a Klipper USB MCU (H36 Combo V2 or a Plimsoll alpha board) and
+ * Talks to a Klipper USB MCU (H36 Combo, H36 Combo V2, or a Plimsoll alpha board) and
  * pulls bulk samples the same way klippy does. The browser owns the port.
  */
 export class H36Session {
@@ -133,21 +134,26 @@ export class H36Session {
       gain: opts.gain,
       sampleRate: opts.sampleRate,
       vref: opts.vref,
+      mux: opts.mux,
     });
-    this.log(`Resetting the ADS1220, gain ${opts.gain}, ${opts.sampleRate} Hz, ${opts.vref} reference`);
+    const mux = opts.mux ?? ADS_INPUTS[0].mux;
+    const writtenGain = mux >= 0b1000 ? 1 : opts.gain;
+    this.log(
+      `Resetting the ADS1220, ${wiringLabel(mux)}, gain ${writtenGain}, ${opts.sampleRate} Hz, ${opts.vref} reference`,
+    );
     await this.spiSend(image.reset);
     await delay(8);
     const booted = await this.spiRead(image.read);
     if (!bytesEqual(booted.subarray(0, 4), [0, 0, 0, 0])) {
       throw new Error(
-        `ADS1220 did not reset (registers ${hex(booted)}). Check CS PA14, SCLK PB7, MOSI PB13, MISO PA15, and DRDY PA1.`,
+        `ADS1220 did not reset (registers ${hex(booted)}). Check ${adsHeaderCheck(this.front)}.`,
       );
     }
     await this.spiSend(image.write);
     const stored = await this.spiRead(image.read);
     if (!bytesEqual(stored.subarray(0, 4), image.regs)) {
       throw new Error(
-        `ADS1220 rejected the register write (wanted ${hex(image.regs)}, got ${hex(stored)}). The SPI wiring is not reliable.`,
+        `ADS1220 rejected the register write (wanted ${hex(image.regs)}, got ${hex(stored)}). Check ${adsHeaderCheck(this.front)}.`,
       );
     }
     await this.spiSend(image.start);
@@ -171,6 +177,22 @@ export class H36Session {
     }
   }
 
+  private flashHint(extras: boolean): string {
+    if (this.front.chip === "STM32F072") {
+      return extras
+        ? "Flash Klipper for the STM32F072: internal clock, USB on PA11/PA12, no bootloader. HX717 support is on unless the build turned it off to save space."
+        : "Flash the alpha board: STM32F072, internal clock, USB on PA11/PA12, no bootloader.";
+    }
+    if (this.front.chip === "STM32G0B1") {
+      return extras
+        ? "Flash Klipper for the STM32G0B1: USB on PA11/PA12, no bootloader, PA2 set at startup. The sensor extras are included unless they were turned off."
+        : "Flash Klipper for the STM32G0B1: USB on PA11/PA12, no bootloader, PA2 set at startup.";
+    }
+    return extras
+      ? "Flash current Klipper for the STM32G431 with USB on PA11/PA12. The sensor extras are included unless they were turned off."
+      : "Flash Klipper for the STM32G431: USB on PA11/PA12, 12 MHz crystal, no bootloader, PA2 set at startup.";
+  }
+
   private requireSensor() {
     const names =
       this.front.sensor === "hx717"
@@ -178,10 +200,7 @@ export class H36Session {
         : ["config_ads1220", "query_ads1220", "spi_transfer", "spi_send"];
     for (const name of names) {
       if (!this.parser.hasCommand(name)) {
-        const flash =
-          this.front.id === "alpha-hx717"
-            ? "Flash Klipper for the STM32F072: internal clock, USB on PA11/PA12, no bootloader. HX717 support is on unless the build turned it off to save space."
-            : "Flash current Klipper for the STM32G431 with USB on PA11/PA12. The sensor extras are included unless they were turned off.";
+        const flash = this.flashHint(true);
         throw new Error(`This firmware has no ${name}. ${flash}`);
       }
     }
@@ -220,54 +239,74 @@ export class H36Session {
       await this.configureHx();
       return;
     }
-    const { cs, drdy, sclk, mosi, miso } = this.front;
-    if (!cs || !drdy || !mosi || !miso) {
+    const front = this.front;
+    const { cs, drdy, sclk, mosi, miso } = front;
+    if (!cs || !drdy || !sclk || !mosi || !miso) {
       throw new Error("The ADS1220 front end is missing its SPI pins.");
     }
-    const pins = { cs, drdy, sclk, mosi, miso };
-    for (const pin of Object.values(pins)) {
-      const known = this.parser.enumerations.pin ?? {};
+    const known = this.parser.enumerations.pin ?? {};
+    for (const pin of [cs, drdy, sclk, mosi, miso]) {
       if (!known[pin]) {
         throw new Error(
-          `Pin ${pin} is not available on this firmware. The Plimsoll mini ADS1220 on an H36 Combo V2 needs PA14, PA1, PB7, PB13, and PA15.`,
+          `Pin ${pin} is not available on this firmware. ${front.label} on the 2×6 header needs ${adsHeaderCheck(front)}.`,
         );
       }
     }
+    if (front.spiBus && (this.parser.enumerations.spi_bus ?? {})[front.spiBus] === undefined) {
+      throw new Error(
+        `This firmware has no SPI bus ${front.spiBus}. ${front.label} on the 2×6 header needs ${adsHeaderCheck(front)}.`,
+      );
+    }
     this.pinsOk = true;
     const ticks = pulseTicks(this.clockHz, SPI_HZ);
-    const spi = this.parser.hasCommand("spi_set_sw_bus")
+    const spi = front.spiBus
       ? {
-          name: "spi_set_sw_bus",
-          line: `spi_set_sw_bus oid=0 miso_pin=${pins.miso} mosi_pin=${pins.mosi} sclk_pin=${pins.sclk} mode=1 pulse_ticks=${ticks}`,
+          name: "spi_set_bus",
+          line: `spi_set_bus oid=0 spi_bus=${front.spiBus} mode=1 rate=${SPI_HZ}`,
           params: {
             oid: 0,
-            miso_pin: pins.miso,
-            mosi_pin: pins.mosi,
-            sclk_pin: pins.sclk,
-            mode: 1,
-            pulse_ticks: ticks,
-          } as Record<string, ParamValue>,
-        }
-      : {
-          name: "spi_set_software_bus",
-          line: `spi_set_software_bus oid=0 miso_pin=${pins.miso} mosi_pin=${pins.mosi} sclk_pin=${pins.sclk} mode=1 rate=${SPI_HZ}`,
-          params: {
-            oid: 0,
-            miso_pin: pins.miso,
-            mosi_pin: pins.mosi,
-            sclk_pin: pins.sclk,
+            spi_bus: front.spiBus,
             mode: 1,
             rate: SPI_HZ,
           } as Record<string, ParamValue>,
-        };
+        }
+      : this.parser.hasCommand("spi_set_sw_bus")
+        ? {
+            name: "spi_set_sw_bus",
+            line: `spi_set_sw_bus oid=0 miso_pin=${miso} mosi_pin=${mosi} sclk_pin=${sclk} mode=1 pulse_ticks=${ticks}`,
+            params: {
+              oid: 0,
+              miso_pin: miso,
+              mosi_pin: mosi,
+              sclk_pin: sclk,
+              mode: 1,
+              pulse_ticks: ticks,
+            } as Record<string, ParamValue>,
+          }
+        : {
+            name: "spi_set_software_bus",
+            line: `spi_set_software_bus oid=0 miso_pin=${miso} mosi_pin=${mosi} sclk_pin=${sclk} mode=1 rate=${SPI_HZ}`,
+            params: {
+              oid: 0,
+              miso_pin: miso,
+              mosi_pin: mosi,
+              sclk_pin: sclk,
+              mode: 1,
+              rate: SPI_HZ,
+            } as Record<string, ParamValue>,
+          };
     if (!this.parser.hasCommand(spi.name)) {
-      throw new Error("This firmware cannot bit-bang SPI. The H36 Combo V2 header needs software SPI for the mini ADS1220.");
+      throw new Error(
+        front.spiBus
+          ? `This firmware cannot drive hardware SPI. ${front.label} on the 2×6 header needs ${adsHeaderCheck(front)}.`
+          : `This firmware cannot bit-bang SPI. ${front.label} on the 2×6 header needs ${adsHeaderCheck(front)}.`,
+      );
     }
     const lines = [
       "allocate_oids count=2",
-      `config_spi oid=0 pin=${pins.cs} cs_active_high=0`,
+      `config_spi oid=0 pin=${cs} cs_active_high=0`,
       spi.line,
-      `config_ads1220 oid=1 spi_oid=0 data_ready_pin=${pins.drdy}`,
+      `config_ads1220 oid=1 spi_oid=0 data_ready_pin=${drdy}`,
     ];
     const crc = configCrc(lines);
     const current = await this.transact("get_config", {}, "config", 1200);
@@ -282,18 +321,22 @@ export class H36Session {
       throw new Error(`The ${this.front.board} was configured by another host. It has been reset. Connect it again.`);
     }
     if (!current.params.is_config) {
-      this.log("Sending a bench config: software SPI plus one ADS1220.");
+      this.log(
+        front.spiBus
+          ? `Sending a bench config: ${front.spiBus} plus one ADS1220 (${adsHeaderCheck(front)}).`
+          : `Sending a bench config: software SPI plus one ADS1220 (${adsHeaderCheck(front)}).`,
+      );
       await this.transact("allocate_oids", { count: 2 }, null, 1200);
       await this.transact(
         "config_spi",
-        { oid: 0, pin: pins.cs, cs_active_high: 0 },
+        { oid: 0, pin: cs, cs_active_high: 0 },
         null,
         1200,
       );
       await this.transact(spi.name, spi.params, null, 1200);
       await this.transact(
         "config_ads1220",
-        { oid: 1, spi_oid: 0, data_ready_pin: pins.drdy },
+        { oid: 1, spi_oid: 0, data_ready_pin: drdy },
         null,
         1200,
       );
@@ -365,9 +408,7 @@ export class H36Session {
     }
     if (!offset) {
       throw new Error(
-        this.front.id === "alpha-hx717"
-          ? "The board did not send a Klipper dictionary. Flash the alpha board: STM32F072, internal clock, USB on PA11/PA12, no bootloader."
-          : "The board did not send a Klipper dictionary. Flash Klipper for the STM32G431: USB on PA11/PA12, 12 MHz crystal, no bootloader, PA2 set at startup.",
+        `The board did not send a Klipper dictionary. ${this.flashHint(false)}`,
       );
     }
     const packed = new Uint8Array(offset);
@@ -447,13 +488,14 @@ export class H36Session {
     timeoutMs: number,
   ): Promise<ParsedMessage | null> {
     const payload = this.parser.encodeCommand(name, params);
-    const seq = this.sendSeq;
-    this.sendSeq += 1n;
-    const frame = encodeBlock(Number(seq & 15n), payload);
     const deadline = Date.now() + timeoutMs;
     let pause = 50;
     let attempt = 0;
     while (!this.closed) {
+      if (this.receiveSeq > this.sendSeq) this.sendSeq = this.receiveSeq;
+      const seq = this.sendSeq;
+      this.sendSeq = seq + 1n;
+      const frame = encodeBlock(Number(seq & 15n), payload);
       const wire = attempt === 0 ? frame : concat(new Uint8Array([0x7e]), frame);
       await this.write(wire);
       const slice = Math.max(20, Math.min(pause, deadline - Date.now()));

@@ -13,6 +13,8 @@ export type StreamOptions = {
   gain: number;
   sampleRate: number;
   vref: "internal" | "analog_supply";
+  /** ADS1220 input pair. Omitted on the HX717. */
+  mux?: number;
 };
 
 export const GOALS = {

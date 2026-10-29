@@ -30,7 +30,8 @@ import {
   type SpeedResult,
   type StreamOptions,
 } from "@/lib/analyze";
-import { isSaturated } from "@/lib/ads1220";
+import { ADS_INPUTS, isSaturated } from "@/lib/ads1220";
+import { interpretWiring, WIRING_PROBES, type WiringReading, type WiringReport } from "@/lib/wiring";
 import { H36Session } from "@/lib/klipper/session";
 import { FRONTS, frontById, type FrontEnd } from "@/lib/frontends";
 import { cellFileName, loadSavedCells, parseCellFile, upsertSavedCell, writeSavedCells, type CellFile, type GaugeMark, type SavedCell } from "@/lib/cell-file";
@@ -77,6 +78,13 @@ type BenchApi = {
   setSampleRate: (rate: number) => void;
   vref: Vref;
   setVref: (vref: Vref) => void;
+  mux: number;
+  setMux: (mux: number) => void;
+  wiringPhase: "idle" | "await-load" | "done";
+  wiringReport: WiringReport | null;
+  runWiringEmpty: () => Promise<void>;
+  runWiringLoaded: () => Promise<void>;
+  clearWiring: () => void;
   invert: boolean;
   setInvert: (invert: boolean) => void;
   tare: number | null;
@@ -200,9 +208,12 @@ export function BenchProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const [log, setLog] = useState<string[]>([]);
   const [mcuLine, setMcuLine] = useState("");
-  const [gain, setGainState] = useState(64);
+  const [gain, setGainState] = useState(ADS_INPUTS[0].unityGain ? 1 : 64);
   const [sampleRate, setSampleRateState] = useState(330);
   const [vref, setVrefState] = useState<Vref>("internal");
+  const [mux, setMuxState] = useState(ADS_INPUTS[0].mux);
+  const [wiringPhase, setWiringPhase] = useState<"idle" | "await-load" | "done">("idle");
+  const [wiringReport, setWiringReport] = useState<WiringReport | null>(null);
   const [invert, setInvertState] = useState(false);
   const [tare, setTare] = useState<number | null>(null);
   const [countsPerGram, setCountsPerGram] = useState<number | null>(null);
@@ -257,6 +268,9 @@ export function BenchProvider({ children }: { children: ReactNode }) {
   const frontRef = useRef(front);
   const rateRef = useRef(sampleRate);
   const vrefRef = useRef(vref);
+  const muxRef = useRef(mux);
+  const keptGainRef = useRef(gain);
+  const emptyWiringRef = useRef<Map<string, number> | null>(null);
   const invertRef = useRef(invert);
   const neckWRef = useRef(neckWidth);
   const neckLRef = useRef(neckLength);
@@ -266,6 +280,7 @@ export function BenchProvider({ children }: { children: ReactNode }) {
   frontRef.current = front;
   rateRef.current = sampleRate;
   vrefRef.current = vref;
+  muxRef.current = mux;
   invertRef.current = invert;
   neckWRef.current = neckWidth;
   neckLRef.current = neckLength;
@@ -361,7 +376,7 @@ export function BenchProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const opts = useCallback((): StreamOptions => {
-    return { gain: gainRef.current, sampleRate: rateRef.current, vref: vrefRef.current };
+    return { gain: gainRef.current, sampleRate: rateRef.current, vref: vrefRef.current, mux: muxRef.current };
   }, []);
 
   const signedMean = useCallback((samples: Sample[]) => {
@@ -393,6 +408,9 @@ export function BenchProvider({ children }: { children: ReactNode }) {
     simRef.current = null;
     sourceRef.current = null;
     samplesRef.current = [];
+    emptyWiringRef.current = null;
+    setWiringPhase("idle");
+    setWiringReport(null);
     setMode("idle");
     setPhase("idle");
     setMcuLine("");
@@ -442,12 +460,16 @@ export function BenchProvider({ children }: { children: ReactNode }) {
     const next = frontById(id);
     setFrontState(next);
     frontRef.current = next;
-    setGainState(next.defaultGain);
-    gainRef.current = next.defaultGain;
+    const frontGain = ADS_INPUTS[0].unityGain && next.sensor === "ads1220" ? 1 : next.defaultGain;
+    setGainState(frontGain);
+    gainRef.current = frontGain;
     setSampleRateState(next.defaultRate);
     rateRef.current = next.defaultRate;
     setVrefState(next.vref);
     vrefRef.current = next.vref;
+    setMuxState(ADS_INPUTS[0].mux);
+    muxRef.current = ADS_INPUTS[0].mux;
+    keptGainRef.current = next.defaultGain;
     setSpeedRates(next.speedRates);
     setSpeedResults([]);
     setCaptures([]);
@@ -588,7 +610,7 @@ export function BenchProvider({ children }: { children: ReactNode }) {
         setBusyLabel(`Trying gain ${candidate}`);
         setGainState(candidate);
         gainRef.current = candidate;
-        await source.start({ gain: candidate, sampleRate: probeRate, vref: vrefRef.current });
+        await source.start({ gain: candidate, sampleRate: probeRate, vref: vrefRef.current, mux: muxRef.current });
         const { samples } = await collectSamples(source.subscribe.bind(source), 0.45, undefined, () => abortRef.current);
         const sign = invertRef.current ? -1 : 1;
         const xs = samples.map((s) => s.counts * sign);
@@ -608,7 +630,7 @@ export function BenchProvider({ children }: { children: ReactNode }) {
       setGainState(chosen);
       gainRef.current = chosen;
       pushLog(`Auto gain settled on ${chosen}.`);
-      await source.start({ gain: chosen, sampleRate: rateRef.current, vref: vrefRef.current });
+      await source.start({ gain: chosen, sampleRate: rateRef.current, vref: vrefRef.current, mux: muxRef.current });
       setPhase("streaming");
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -639,7 +661,7 @@ export function BenchProvider({ children }: { children: ReactNode }) {
       for (const rate of ordered) {
         if (abortRef.current) break;
         setBusyLabel(`${rate} Hz`);
-        await source.start({ gain: gainRef.current, sampleRate: rate, vref: vrefRef.current });
+        await source.start({ gain: gainRef.current, sampleRate: rate, vref: vrefRef.current, mux: muxRef.current });
         const { samples, durationSec } = await collectSamples(
           source.subscribe.bind(source),
           speedSeconds,
@@ -1096,6 +1118,137 @@ export function BenchProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const applyMux = (value: number) => {
+    const next = ADS_INPUTS.find((input) => input.mux === value);
+    const prev = ADS_INPUTS.find((input) => input.mux === muxRef.current);
+    const nextUnity = next?.unityGain ?? false;
+    const prevUnity = prev?.unityGain ?? false;
+    if (nextUnity && !prevUnity && gainRef.current !== 1) {
+      keptGainRef.current = gainRef.current;
+      setGainState(1);
+      gainRef.current = 1;
+    } else if (!nextUnity && prevUnity && keptGainRef.current !== 1) {
+      setGainState(keptGainRef.current);
+      gainRef.current = keptGainRef.current;
+    }
+    setMuxState(value);
+    muxRef.current = value;
+  };
+
+  const measureWiringPass = async (pass: "empty" | "loaded") => {
+    const source = sourceRef.current;
+    if (!source) {
+      setError("Connect a board or start the simulator first.");
+      return null;
+    }
+    if (frontRef.current.sensor !== "ads1220") {
+      setError("The wiring check reads ADS1220 inputs. This board is an HX717.");
+      return null;
+    }
+    abortRef.current = false;
+    unsubRef.current?.();
+    unsubRef.current = null;
+    setPhase("busy");
+    setError(null);
+    const means = new Map<string, number>();
+    try {
+      for (const probe of WIRING_PROBES) {
+        if (abortRef.current) return null;
+        setBusyLabel(`${probe.label} · ${pass === "empty" ? "empty cell" : "loaded cell"}`);
+        await source.start({ gain: 1, sampleRate: 90, vref: "analog_supply", mux: probe.mux });
+        await wait(200);
+        const { samples } = await collectSamples(
+          source.subscribe.bind(source),
+          0.45,
+          undefined,
+          () => abortRef.current,
+        );
+        if (samples.length < 8) throw new Error(`${probe.label} did not return enough samples.`);
+        means.set(probe.id, mean(samples.map((sample) => sample.counts)));
+      }
+      return means;
+    } catch (err) {
+      try {
+        await source.stop();
+      } catch {
+        /* the link may already be down */
+      }
+      setError(err instanceof Error ? err.message : String(err));
+      setPhase(sourceRef.current ? "ready" : "idle");
+      return null;
+    } finally {
+      setBusyLabel("");
+    }
+  };
+
+  const runWiringEmpty = async () => {
+    setWiringReport(null);
+    const means = await measureWiringPass("empty");
+    if (!means) {
+      if (!abortRef.current && sourceRef.current) {
+        setWiringPhase("idle");
+        setPhase("ready");
+      }
+      return;
+    }
+    emptyWiringRef.current = means;
+    setWiringPhase("await-load");
+    try {
+      await sourceRef.current?.stop();
+    } catch {
+      /* the pass already finished */
+    }
+    setPhase(sourceRef.current ? "ready" : "idle");
+  };
+
+  const runWiringLoaded = async () => {
+    const empty = emptyWiringRef.current;
+    if (!empty) {
+      setError("Read the empty cell first.");
+      return;
+    }
+    const loaded = await measureWiringPass("loaded");
+    if (!loaded) {
+      if (!abortRef.current) {
+        setWiringPhase("await-load");
+        setPhase(sourceRef.current ? "ready" : "idle");
+      }
+      return;
+    }
+    const readings: WiringReading[] = WIRING_PROBES.map((probe) => ({
+      ...probe,
+      pins: [...probe.pins],
+      rest: empty.get(probe.id) ?? 0,
+      load: loaded.get(probe.id) ?? 0,
+    }));
+    const report = interpretWiring(readings);
+    setWiringReport(report);
+    setWiringPhase("done");
+    if (report.pairMux !== null) applyMux(report.pairMux);
+    pushLog(report.title);
+    const source = sourceRef.current;
+    if (!source) {
+      setPhase("idle");
+      return;
+    }
+    try {
+      samplesRef.current = [];
+      dirtyRef.current = true;
+      attach(source);
+      await source.start(opts());
+      setPhase("streaming");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setPhase("ready");
+    }
+  };
+
+  const clearWiring = () => {
+    emptyWiringRef.current = null;
+    setWiringReport(null);
+    setWiringPhase("idle");
+  };
+
   const api: BenchApi = {
     mode,
     front,
@@ -1119,6 +1272,13 @@ export function BenchProvider({ children }: { children: ReactNode }) {
       setVrefState(value);
       vrefRef.current = value;
     },
+    mux,
+    setMux: (value) => applyMux(value),
+    wiringPhase,
+    wiringReport,
+    runWiringEmpty,
+    runWiringLoaded,
+    clearWiring,
     invert,
     setInvert: setInvertState,
     tare,
@@ -1410,4 +1570,8 @@ export function BenchProvider({ children }: { children: ReactNode }) {
   };
 
   return <Ctx.Provider value={api}>{children}</Ctx.Provider>;
+}
+
+function wait(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
