@@ -10,8 +10,6 @@ This is the guide. It follows the test from the first click to the printed page.
 
 ![The bench on first open. The guide is on the left. Build is the first tab. The amp menu is at the top right.](images/app.png)
 
-The bench answers one question before a load cell goes on a printer: does this cell, with this amplifier, read fast enough, straight enough, and over a useful weight range? A real board speaks Klipper’s USB protocol. The simulator walks the same screens when nothing is plugged in.
-
 Probing the bed and choosing pressure advance happen later, on the printer, and only after this bench has passed. The app does not run those tests.
 
 ## Test in this order
