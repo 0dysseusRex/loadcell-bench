@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Load cell bench
+Comment=Install and run the load cell bench
+Exec=sh -c 'exec "$(dirname "$1")/loadcell-bench.sh"' launcher %k
+Terminal=false
+Categories=Utility;

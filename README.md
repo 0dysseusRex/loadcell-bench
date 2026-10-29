@@ -23,6 +23,16 @@ npm run dev
 
 Open [http://127.0.0.1:4471](http://127.0.0.1:4471).
 
+A small launcher window can do that install, start the server, and open the page. On Windows, double-click `launcher/LoadCellBench.exe`.
+
+- **Install** runs `npm install` and `npm run build`. The button then reads **Uninstall**, which removes `node_modules` and the Next.js build.
+- **Run** starts the server on port 4471 and opens http://127.0.0.1:4471 in the default browser. Run again while it is up opens the page a second time.
+- **Close** stops the server and closes the window. The title-bar button does the same.
+
+Node.js 18.18 or newer has to be installed already. The launcher uses a Node that includes npm, and it skips a Node that was bundled with another tool when a normal install is on the machine.
+
+On a Mac, double-click `launcher/Load Cell Bench.command`. That opens Terminal and the same window. On Linux, run `launcher/loadcell-bench.sh`. `launcher/build.sh` freezes a native binary on that computer. Linux also needs the `python3-tk` package for the window.
+
 `npm test` checks the Klipper frame codec against Klipper’s own byte encoding, the ADS1220 register image, the HX717 gain channels, and the speed / accuracy / range math.
 
 ## What you can measure

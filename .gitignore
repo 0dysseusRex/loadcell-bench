@@ -44,3 +44,8 @@ next-env.d.ts
 /agent-tools/
 /uploads/
 /assets/
+
+# launcher freeze workspace
+/launcher/.pyinstaller/
+__pycache__/
+*.pyc
