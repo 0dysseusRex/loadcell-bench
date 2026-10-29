@@ -102,4 +102,10 @@ Pressure advance is not computed here. If the range test calls the cell a force-
 
 ## The K2 plate
 
-`hardware/NewLoadcell.dxf` is the cut file for the example cell. The plate is 38 × 24 mm, 0.100 in thick. The drawing is in millimeters. Other designs skip the DXF and type their own measurements.
+`hardware/NewLoadcell.dxf` is the cut file for the example cell. The plate is 38 × 24 mm, 0.100 in thick. The drawing is in millimeters. Other designs skip the DXF and type their own measurements. The plate and its build notes are a separate open-hardware project: [wiki/hardware/custom-k2-loadcell/README.md](wiki/hardware/custom-k2-loadcell/README.md).
+
+## License
+
+The bench application, the launcher, and the user guide are under the [MIT License](LICENSE).
+
+The Custom K2 Loadcell design, the cut file, and the hardware pages in the wiki are under the [CERN Open Hardware Licence Version 2 - Permissive](hardware/LICENSE-CERN-OHL-P-2.0.txt). That is the permissive CERN hardware licence: you can study, modify, share, and make the plate, including in a product you sell. The full text is in that file, and CERN asks that it stay unmodified.

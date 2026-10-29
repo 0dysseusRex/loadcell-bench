@@ -1,5 +1,7 @@
 # Custom K2 Loadcell
 
+Copyright 2026 0dysseusRex. This plate, its cut file, and these hardware pages are open hardware under the CERN Open Hardware Licence Version 2 - Permissive. You may redistribute and modify this source and make products using it under the terms of [CERN-OHL-P v2](../../../hardware/LICENSE-CERN-OHL-P-2.0.txt). This source is distributed without any express or implied warranty, including of merchantability, satisfactory quality, and fitness for a particular purpose. The licence text has the conditions.
+
 This is the hardware sub-project for the worked example in the bench. The tests accept any 4-wire bridge. This plate is the one the Build tab fills in when you press Custom K2 Loadcell.
 
 The plate is laser-cut 6061-T6, 38 × 24 mm, 0.100 in thick, with four necks. Four BA1000-3AA gauges are bonded with Loctite 401 and covered with Loctite 9460.
