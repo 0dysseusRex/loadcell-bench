@@ -74,6 +74,7 @@ function BenchShell() {
               {bench.cellName.trim() || "Unnamed load cell"}
             </p>
             <h1 className="mt-1 text-2xl font-semibold tracking-tight sm:text-3xl">Load cell bench</h1>
+            <p className="mt-1 text-sm font-medium text-[#3c3832]">For testing 4-wire load cells.</p>
             <p className="mt-1 max-w-xl text-sm text-[#5c564c]">
               Stream a Plimsoll ADC over Klipper USB and measure rate, accuracy, and range before the cell goes on a printer.
             </p>

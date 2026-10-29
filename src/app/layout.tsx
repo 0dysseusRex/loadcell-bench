@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Load cell bench",
   description:
-    "Stream a Plimsoll mini ADS1220, mini HX717, or alpha USB board through Klipper and test polling speed, accuracy, and weight range of any full-bridge load cell.",
+    "For testing 4-wire load cells. Stream a Plimsoll mini ADS1220, mini HX717, or alpha USB board through Klipper and measure rate, accuracy, and range.",
 };
 
 export default function RootLayout({
