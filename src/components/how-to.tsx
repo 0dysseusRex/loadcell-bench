@@ -30,7 +30,7 @@ const STEPS: { id: GuideStepId; tab: GuideTab; title: string; body: string }[] =
     id: "live",
     tab: "live",
     title: "Watch the live reading",
-    body: "Press Start stream. The large number is grams once a scale is known, and counts until then. A count is the chip’s raw reading. Press on the cell and that number should move. If it moves the wrong way, turn on Invert on this screen. The smaller noise figure is how much the reading jitters while the cell sits still.",
+    body: "Press Start stream. The large number is grams once a scale is known, and counts until then. A count is the chip’s raw reading. Press on the cell and that number should move. If it moves the wrong way, turn on Invert on this screen. On an ADS1220, Check wiring above the chip settings reads each pin empty and loaded and says whether the bridge is working. The smaller noise figure is how much the reading jitters while the cell sits still.",
   },
   {
     id: "speed",

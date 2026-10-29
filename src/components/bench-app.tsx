@@ -25,7 +25,7 @@ import { Separator } from "@/components/ui/separator";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ADS_INPUTS } from "@/lib/ads1220";
+import { wiringLabel } from "@/lib/wiring";
 import { FRONTS, printerSnippet } from "@/lib/frontends";
 import { CELL_PROFILES, GAUGE_PRESETS, MATERIALS, NORMAL_RATES, TURBO_RATES, bendingStiffness, cellProfileById, estimateScale, gaugeById, materialById, rootGridFraction, type BridgeKind } from "@/lib/model";
 import { GOALS } from "@/lib/analyze";
@@ -186,6 +186,83 @@ function StatusBadge() {
   return <Badge variant="outline">{bench.mode === "sim" ? "Simulator idle" : `${bench.front.short} idle`}</Badge>;
 }
 
+function WiringCheck() {
+  const bench = useBench();
+  if (bench.front.sensor !== "ads1220") return null;
+  const running = bench.phase === "busy";
+  const report = bench.wiringReport;
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Check wiring</CardTitle>
+        <CardDescription>
+          Reads each ADS1220 input with the cell empty, then again with a load on it. Gain 1 and the analog supply make 1.65 V about 4.2 million counts.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {bench.wiringPhase === "idle" && (
+          <Button onClick={() => void bench.runWiringEmpty()} disabled={bench.mode === "idle" || running}>
+            Read the empty cell
+          </Button>
+        )}
+        {bench.wiringPhase === "await-load" && (
+          <>
+            <p className="text-sm leading-relaxed text-[#3c3832]">
+              Empty readings are in. Put a steady load on the cell, then read it again.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <Button onClick={() => void bench.runWiringLoaded()} disabled={running}>
+                Read the loaded cell
+              </Button>
+              <Button variant="ghost" onClick={bench.clearWiring} disabled={running}>
+                Start over
+              </Button>
+            </div>
+          </>
+        )}
+        {bench.wiringPhase === "done" && report && (
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant={report.ok ? "default" : "destructive"}>{report.ok ? "Working" : "Issue"}</Badge>
+              <p className="text-sm font-medium text-[#1c1915]">{report.title}</p>
+            </div>
+            {report.detail.map((paragraph) => (
+              <p key={paragraph} className="text-sm leading-relaxed text-[#3c3832]">
+                {paragraph}
+              </p>
+            ))}
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="text-[11px] tracking-wide text-[#6d675e] uppercase">
+                  <tr>
+                    <th className="py-1 pr-2 font-medium">Input</th>
+                    <th className="py-1 pr-2 font-medium">Empty</th>
+                    <th className="py-1 pr-2 font-medium">Loaded</th>
+                    <th className="py-1 font-medium">Change</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {report.rows.map((row) => (
+                    <tr key={row.label} className="border-t border-[#eee6d8]">
+                      <td className="py-1 pr-2">{row.label}</td>
+                      <td className="py-1 pr-2 font-mono tabular-nums">{fmtCounts(row.rest)}</td>
+                      <td className="py-1 pr-2 font-mono tabular-nums">{fmtCounts(row.load)}</td>
+                      <td className="py-1 font-mono tabular-nums">{fmtCounts(row.change)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <Button variant="outline" onClick={bench.clearWiring} disabled={running}>
+              Run again
+            </Button>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function LivePanel() {
   const bench = useBench();
   const streaming = bench.phase === "streaming";
@@ -260,6 +337,7 @@ function LivePanel() {
         </CardContent>
       </Card>
       <div className="space-y-4">
+        <WiringCheck />
         <Card>
           <CardHeader>
             <CardTitle className="text-base">{bench.front.sensor === "hx717" ? "HX717" : "ADS1220"}</CardTitle>
@@ -315,17 +393,8 @@ function LivePanel() {
                 <option value="analog_supply">Analog supply, ratiometric</option>
               </NativeSelect>
             </Field>
-            <Field label="Input">
-              <NativeSelect value={String(bench.mux)} onChange={(v) => bench.setMux(Number(v))} disabled={bench.phase === "busy"}>
-                {ADS_INPUTS.map((input) => (
-                  <option key={input.id} value={input.mux}>
-                    {input.label}
-                  </option>
-                ))}
-              </NativeSelect>
-            </Field>
             <p className="text-xs leading-relaxed text-[#5c564c]">
-              AIN0 minus AIN1 is the pair that moves when this flexure bends. AIN2 and AIN3 sit near ground. The half-scale pairs drop the gain to 1 so 1.65 V stays on scale. Restart the stream after changing this.
+              Live pair: {wiringLabel(bench.mux)}. Check wiring, above, reads the other pins.
             </p>
             </>
             )}
