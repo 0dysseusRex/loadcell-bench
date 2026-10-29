@@ -1,5 +1,9 @@
 # Load cell bench
 
+The load cell bench is a browser app for checking a 4-wire load cell before it goes on a printer. It talks to a Plimsoll amplifier running Klipper over USB, or it runs a built-in simulator, and it measures three things: how fast the readings arrive, how straight they are against weights you already trust, and how much load the cell can take before the converter saturates or the zero fails to come back. You read those results, then you decide whether the cell is ready for a nozzle probe or an extrusion force trace.
+
+AI disclaimer. This app, this readme, the wiki, and the Custom K2 Loadcell were written with the help of AI tools. Treat the pin maps, the cut file, the bending numbers, and the pass limits as a starting point. Measure the cell you built, and read the drawing, before you cut metal, order a board, or send the cell to a printer. A pass in the simulator is not a measurement of the metal.
+
 ![Load cell bench. The test guide is on the left, Build is open, and the amp menu is at the top right.](wiki/images/app.png)
 
 The wiki walks every screen in the order you test a cell, with a screenshot of each one: [wiki/README.md](wiki/README.md). The Custom K2 Loadcell plate is a hardware sub-project there, with its own build guide.
