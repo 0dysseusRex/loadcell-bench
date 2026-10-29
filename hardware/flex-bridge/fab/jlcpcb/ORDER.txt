@@ -1,0 +1,23 @@
+JLCPCB Flexible PCB upload for flex-bridge
+
+Select these options on the quote page (https://cart.jlcpcb.com/quote/?orderType=3):
+  Base material: Flex
+  Layers: 1
+  FPC stackup: 1-layer, 50 um polyimide dielectric
+  Outer copper: 0.5 oz (18 um). Their 50 um one-layer quote offers this weight.
+  Coverlay: yellow, top side (openings are flex-bridge.GTS)
+  Surface finish: ENIG, 1 uin
+  Stiffener: Polyimide, bottom, 0.2 mm
+    Layer file: flex-bridge-pib_0.2.gbr  (JLCPCB name pib_0.2)
+    Nine separate regions: wire-pad bar plus one rectangle on each gauge pad
+  Quantity: 10. A checkout on 29 Oct 2026, with shipping, duties, and a coupon, was $76.01.
+  PCB assembly: off. Gauges and 30 AWG wires are attached by hand.
+  No drill file. This flex has no holes.
+
+Do not upload the load-cell drawing. It is on Dwgs.User and is not in this zip.
+Confirm the production file before they cut it. Check that pib_0.2 is on the
+bottom, that coverlay is open only on the 12 pads, and that the outline is the
+flex, not the load-cell plate.
+
+Silk labels E+ S- S+ E- are 0.7 mm tall with a 0.12 mm stroke, under JLCPCB's
+0.8 mm / 0.15 mm legend minimum. They may thicken or drop that legend.

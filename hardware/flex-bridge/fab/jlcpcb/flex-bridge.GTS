@@ -1,0 +1,53 @@
+G04 #@! TF.GenerationSoftware,KiCad,Pcbnew,10.0.7*
+G04 #@! TF.CreationDate,2026-10-29T00:40:05-07:00*
+G04 #@! TF.ProjectId,flex-bridge,666c6578-2d62-4726-9964-67652e6b6963,rev?*
+G04 #@! TF.SameCoordinates,Original*
+G04 #@! TF.FileFunction,Soldermask,Top*
+G04 #@! TF.FilePolarity,Negative*
+%FSLAX46Y46*%
+G04 Gerber Fmt 4.6, Leading zero omitted, Abs format (unit mm)*
+G04 Created by KiCad (PCBNEW 10.0.7) date 2026-10-29 00:40:05*
+%MOMM*%
+%LPD*%
+G01*
+G04 APERTURE LIST*
+G04 Aperture macros list*
+%AMRotRect*
+0 Rectangle, with rotation*
+0 The origin of the aperture is its center*
+0 $1 length*
+0 $2 width*
+0 $3 Rotation angle, in degrees counterclockwise*
+0 Add horizontal line*
+21,1,$1,$2,0,0,$3*%
+G04 Aperture macros list end*
+%ADD10R,1.600000X1.000000*%
+%ADD11RotRect,1.640000X1.240000X150.000000*%
+%ADD12RotRect,1.640000X1.240000X30.000000*%
+%ADD13RotRect,1.640000X1.240000X345.000000*%
+%ADD14RotRect,1.458900X1.240000X195.000000*%
+%ADD15RotRect,1.640000X1.240000X195.000000*%
+G04 APERTURE END LIST*
+D10*
+X22300000Y-1950000D03*
+D11*
+X12002000Y-7659600D03*
+D12*
+X31526700Y-3915000D03*
+D13*
+X26739100Y-15226100D03*
+D11*
+X11282000Y-8906600D03*
+D13*
+X27111800Y-13835100D03*
+D14*
+X5332400Y-16780800D03*
+D12*
+X32496700Y-5595000D03*
+D10*
+X20100000Y-1950000D03*
+X17900000Y-1950000D03*
+X15700000Y-1950000D03*
+D15*
+X4710700Y-15042400D03*
+M02*

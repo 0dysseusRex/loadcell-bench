@@ -49,3 +49,9 @@ next-env.d.ts
 /launcher/.pyinstaller/
 __pycache__/
 *.pyc
+
+# KiCad local state
+*.kicad_prl
+*.lck
+**/fp-info-cache
+hardware/flex-bridge/.history/

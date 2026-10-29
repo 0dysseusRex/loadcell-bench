@@ -1,6 +1,6 @@
 # Build the Custom K2 Loadcell
 
-Cut the plate, bond four gauges as a full bridge, then coat them. The jumper wires in the photos are the wiring this build uses today. A flex PCB will replace those jumpers when [that board is finished](flex-pcb.md).
+Cut the plate, bond four gauges as a full bridge, then coat them. The jumper wires in the photos are the wiring this build uses today. The [flex PCB](flex-pcb.md) is the board that replaces those jumpers. Ordering it is on the [loadcell page](README.md#order-the-flex).
 
 ## Cut
 

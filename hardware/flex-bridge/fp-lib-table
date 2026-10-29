@@ -1,0 +1,5 @@
+(fp_lib_table
+	(version 7)
+	(lib (name "loadcell") (type "KiCad") (uri "${KIPRJMOD}/../loadcell.pretty") (options "") (descr "BA1K-3AA gauge"))
+	(lib (name "flex-bridge") (type "KiCad") (uri "${KIPRJMOD}/flex-bridge.pretty") (options "") (descr "Flex pads"))
+)
