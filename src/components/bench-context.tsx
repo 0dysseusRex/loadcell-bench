@@ -31,7 +31,7 @@ import {
   type StreamOptions,
 } from "@/lib/analyze";
 import { ADS_INPUTS, isSaturated } from "@/lib/ads1220";
-import { interpretWiring, WIRING_PROBES, type WiringReading, type WiringReport } from "@/lib/wiring";
+import { interpretForKind, WIRING_PROBES, type CellKind, type WiringReading, type WiringReport } from "@/lib/wiring";
 import { H36Session } from "@/lib/klipper/session";
 import { FRONTS, frontById, type FrontEnd } from "@/lib/frontends";
 import { cellFileName, loadSavedCells, parseCellFile, upsertSavedCell, writeSavedCells, type CellFile, type GaugeMark, type SavedCell } from "@/lib/cell-file";
@@ -85,6 +85,8 @@ type BenchApi = {
   runWiringEmpty: () => Promise<void>;
   runWiringLoaded: () => Promise<void>;
   clearWiring: () => void;
+  cellKind: CellKind;
+  setCellKind: (kind: CellKind) => void;
   invert: boolean;
   setInvert: (invert: boolean) => void;
   tare: number | null;
@@ -235,6 +237,7 @@ export function BenchProvider({ children }: { children: ReactNode }) {
   const [gridLengthMm, setGridLengthMm] = useState<number | null>(CELL.gauge.gridMm[1]);
   const [gridWidthMm, setGridWidthMm] = useState<number | null>(CELL.gauge.gridMm[0]);
   const [bridge, setBridge] = useState<BridgeKind | null>("full");
+  const [cellKind, setCellKindState] = useState<CellKind>("full");
   const [gaugeMarks, setGaugeMarks] = useState<GaugeMark[]>([]);
   const [savedCells, setSavedCells] = useState<SavedCell[]>([]);
   const [strainFraction, setStrainFractionState] = useState(1);
@@ -271,6 +274,7 @@ export function BenchProvider({ children }: { children: ReactNode }) {
   const muxRef = useRef(mux);
   const keptGainRef = useRef(gain);
   const emptyWiringRef = useRef<Map<string, number> | null>(null);
+  const cellKindRef = useRef<CellKind>("full");
   const invertRef = useRef(invert);
   const neckWRef = useRef(neckWidth);
   const neckLRef = useRef(neckLength);
@@ -1081,6 +1085,10 @@ export function BenchProvider({ children }: { children: ReactNode }) {
     setGridLengthMm(file.gridLengthMm);
     setGridWidthMm(file.gridWidthMm);
     setBridge(file.bridge);
+    if (file.bridge === "full" || file.bridge === "half" || file.bridge === "quarter") {
+      cellKindRef.current = file.bridge;
+      setCellKindState(file.bridge);
+    }
     setGaugeMount(file.gaugeMount);
     if (file.strainFraction != null && file.strainFraction <= 1) setStrainFractionState(file.strainFraction);
     setRatedGrams(file.ratedGrams);
@@ -1221,7 +1229,7 @@ export function BenchProvider({ children }: { children: ReactNode }) {
       rest: empty.get(probe.id) ?? 0,
       load: loaded.get(probe.id) ?? 0,
     }));
-    const report = interpretWiring(readings);
+    const report = interpretForKind(cellKindRef.current, readings);
     setWiringReport(report);
     setWiringPhase("done");
     if (report.pairMux !== null) applyMux(report.pairMux);
@@ -1247,6 +1255,14 @@ export function BenchProvider({ children }: { children: ReactNode }) {
     emptyWiringRef.current = null;
     setWiringReport(null);
     setWiringPhase("idle");
+  };
+
+  const setCellKind = (kind: CellKind) => {
+    if (kind === cellKindRef.current) return;
+    cellKindRef.current = kind;
+    setCellKindState(kind);
+    setBridge(kind === "series" ? "half" : kind);
+    clearWiring();
   };
 
   const api: BenchApi = {
@@ -1279,6 +1295,8 @@ export function BenchProvider({ children }: { children: ReactNode }) {
     runWiringEmpty,
     runWiringLoaded,
     clearWiring,
+    cellKind,
+    setCellKind,
     invert,
     setInvert: setInvertState,
     tare,
@@ -1371,6 +1389,10 @@ export function BenchProvider({ children }: { children: ReactNode }) {
       setGridLengthMm(profile.gridLengthMm);
       setGridWidthMm(profile.gridWidthMm);
       setBridge(profile.bridge);
+      if (profile.bridge === "full" || profile.bridge === "half" || profile.bridge === "quarter") {
+        cellKindRef.current = profile.bridge;
+        setCellKindState(profile.bridge);
+      }
       setGaugeMount(profile.gaugeMount);
       setStrainFractionState(1);
       setGaugeMarks([]);
@@ -1456,7 +1478,18 @@ export function BenchProvider({ children }: { children: ReactNode }) {
       }
     },
     bridge,
-    setBridge,
+    setBridge: (next) => {
+      setBridge(next);
+      const previous = cellKindRef.current;
+      if (next === "full" || next === "quarter") {
+        cellKindRef.current = next;
+        setCellKindState(next);
+      } else if (next === "half" && previous !== "series") {
+        cellKindRef.current = "half";
+        setCellKindState("half");
+      }
+      if (cellKindRef.current !== previous) clearWiring();
+    },
     strainFraction,
     setStrainFraction: (fraction) => {
       if (Number.isFinite(fraction) && fraction > 0 && fraction <= 1) setStrainFractionState(fraction);

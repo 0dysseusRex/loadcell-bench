@@ -20,14 +20,17 @@ Auto gain walks 1 through 128 and stops before the unloaded offset hits the rail
 
 ## Check wiring
 
-Check wiring is on the Live tab, above the ADS1220 card. The HX717 has no input mux, so that card is hidden there.
+Check wiring is on the Live tab, above the ADS1220 card. The Load cell menu picks the cell you are testing. The steps under it are the wiring for that choice. The HX717 has no input mux, so the card still shows the wiring and hides the pin reads.
 
-Read the empty cell, then put a steady load on and read it again. The check uses gain 1 and the analog supply, so about 1.65 V is about 4.2 million counts. It reads each pin to ground and each pair, then says what it found:
+The choices are a full Wheatstone bridge, a half bridge, a quarter bridge, and a three-gauge series string. Full, half, and quarter also set the Build tab bridge, which is the predicted scale. The three-gauge series sets that bridge to half, because the test is one span completed with two resistors.
 
-- Working. The two sense wires move in opposite directions and the difference stays near the middle.
-- The sense wires move the same way, so the difference barely moves. That is what happens when every gauge on one divider sees the same strain. Trade the two gauges in one divider (the gauge from E+ to a sense wire with the gauge from that sense wire to E−). Swapping the two leads of one gauge does nothing, because a gauge is a resistor. If the two steps are about the same size, also check that excitation stays at 3.3 V under the load.
+Read the empty cell, then put a steady load on and read it again. The check uses gain 1 and the analog supply, so about 1.65 V is about 4.2 million counts. It reads each pin to ground and each pair. What counts as wired depends on the menu:
+
+- Full Wheatstone. The two sense wires move in opposite directions and the difference stays near the middle.
+- Half bridge, quarter bridge, or one span of a three-gauge series. One midpoint moves, the resistor midpoint stays, and the difference stays near the middle. Two wires that move apart are a full bridge, and the check says so.
+- The sense wires move the same way, so the difference barely moves. On a full bridge, trade the two gauges in one divider. On a three-gauge series, that span’s two gauges have the same strain sign: wire the other span.
 - One pin moves, excitation is missing, nothing moved, or the readings never changed from one input to the next.
-- The wires move opposite ways and the difference rests near half scale. The bridge is alive and badly balanced.
+- On the three-gauge series, a difference that rests near 4.2 million counts is the two twist pairs used as the diagonals. That is not the span test.
 
 ![Check wiring after the empty read and the loaded read. This capture is the simulator, which has one signal, so every input comes back the same and the badge says Issue.](images/wiring.png)
 
@@ -47,6 +50,6 @@ The link log is the running text of connects, resets, and test lines.
 
 ## HX717
 
-Start stream only starts watching the data-out pin. Gain is A-128 or A-64, chosen when you connect. The sample-rate menu is the solder jumper you want the speed sweep to check, not a register. Mini boards leave the factory at 320 Hz. There is no reference menu: the HX717 is ratiometric. There is no Check wiring card. Chip errors join the noise, overflow, and gap figures.
+Start stream only starts watching the data-out pin. Gain is A-128 or A-64, chosen when you connect. The sample-rate menu is the solder jumper you want the speed sweep to check, not a register. Mini boards leave the factory at 320 Hz. There is no reference menu: the HX717 is ratiometric. Check wiring still shows how to land the selected cell, and it does not scan pins. Chip errors join the noise, overflow, and gap figures.
 
 Next: [see how fast readings arrive](speed.md).
