@@ -25,7 +25,7 @@ import { Separator } from "@/components/ui/separator";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { wiringLabel } from "@/lib/wiring";
+import { CELL_KINDS, cellKindGuide, wiringLabel, type CellKind } from "@/lib/wiring";
 import { FRONTS, printerSnippet } from "@/lib/frontends";
 import { CELL_PROFILES, GAUGE_PRESETS, MATERIALS, NORMAL_RATES, TURBO_RATES, bendingStiffness, cellProfileById, estimateScale, gaugeById, materialById, rootGridFraction, type BridgeKind } from "@/lib/model";
 import { GOALS } from "@/lib/analyze";
@@ -189,28 +189,53 @@ function StatusBadge() {
 
 function WiringCheck() {
   const bench = useBench();
-  if (bench.front.sensor !== "ads1220") return null;
+  const guide = cellKindGuide(bench.cellKind);
+  const ads = bench.front.sensor === "ads1220";
   const running = bench.phase === "busy";
   const report = bench.wiringReport;
   return (
     <Card>
       <CardHeader>
         <CardTitle className="text-base">Check wiring</CardTitle>
-        <CardDescription>
-          Reads each ADS1220 input with the cell empty, then again with a load on it. Gain 1 and the analog supply make 1.65 V about 4.2 million counts.
-        </CardDescription>
+        <CardDescription>{guide.blurb}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
-        {bench.wiringPhase === "idle" && (
+        <Field label="Load cell">
+          <NativeSelect
+            value={bench.cellKind}
+            onChange={(value) => bench.setCellKind(value as CellKind)}
+            disabled={running}
+          >
+            {CELL_KINDS.map((kind) => (
+              <option key={kind.kind} value={kind.kind}>
+                {kind.label}
+              </option>
+            ))}
+          </NativeSelect>
+        </Field>
+        <ol className="list-decimal space-y-1.5 pl-5 text-sm leading-relaxed text-[#3c3832]">
+          {guide.steps.map((step) => (
+            <li key={step}>{step}</li>
+          ))}
+        </ol>
+        {bench.cellKind === "series" && (
+          <p className="text-xs leading-relaxed text-[#5c564c]">
+            Choosing this sets the Build tab bridge to half, which is the output of one completed span.
+          </p>
+        )}
+        {!ads && (
+          <p className="text-sm leading-relaxed text-[#3c3832]">
+            This board is an HX717, so it cannot read the pins one at a time. Wire the cell as above and watch the live trace. An ADS1220 can tell a moving midpoint from a fixed one.
+          </p>
+        )}
+        {ads && bench.wiringPhase === "idle" && (
           <Button onClick={() => void bench.runWiringEmpty()} disabled={bench.mode === "idle" || running}>
             Read the empty cell
           </Button>
         )}
-        {bench.wiringPhase === "await-load" && (
+        {ads && bench.wiringPhase === "await-load" && (
           <>
-            <p className="text-sm leading-relaxed text-[#3c3832]">
-              Empty readings are in. Put a steady load on the cell, then read it again.
-            </p>
+            <p className="text-sm leading-relaxed text-[#3c3832]">{guide.loadPrompt}</p>
             <div className="flex flex-wrap gap-2">
               <Button onClick={() => void bench.runWiringLoaded()} disabled={running}>
                 Read the loaded cell
@@ -849,6 +874,11 @@ function BuildPanel() {
                 <option value="quarter">Quarter bridge, 1 active gauge</option>
               </NativeSelect>
             </Field>
+            {bench.cellKind === "series" && (
+              <p className="text-xs leading-relaxed text-[#5c564c]">
+                The Live tab is set to the three-gauge series. Half is the scale of one span completed with two resistors. Switching this menu to full or quarter changes that Live choice.
+              </p>
+            )}
             <div className="grid gap-3 sm:grid-cols-2">
               <Field label="Gauge factor">
                 <Input
