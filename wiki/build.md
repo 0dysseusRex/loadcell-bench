@@ -45,7 +45,20 @@ These are handbook typicals. If your sheet differs, choose Custom material and t
 
 ## Gauge, bridge, and scale
 
-Gauge presets are BA1000-3AA, a 350 Ω foil, and a custom gauge. The gauge factor is what the math uses. A package range of about 1.8 to 2.2 around a nominal 2.0 is normal. Resistance does not change counts per gram. It changes how warm the foil gets at a given excitation.
+Gauge presets are BA1000-3AA, BA1000-3A (1 kΩ), BA500-3AB (350 Ω and 1 kΩ), BA300-3AF (350 Ω), BFL-350, BFL-1K, a 350 Ω foil, a generic 1 kΩ foil, and a custom gauge. The Baumer parts are the foils that turn up in cheap cells; a BA1000-3AA is the one the Custom K2 uses, and a BA500-3AB is common in the cells sold as a bare beam. The gauge factor is what the math uses. A package range of about 1.8 to 2.2 around a nominal 2.0 is normal. Resistance does not change counts per gram. It changes how warm the foil gets at a given excitation.
+
+| Preset | Resistance | Gauge factor | Grid, width × length |
+| --- | --- | --- | --- |
+| BA1000-3AA | 1000 Ω | 2.0 | 3.0 × 5.3 mm |
+| BA1000-3A 1 kΩ | 1000 Ω | 2.0 | 3.0 × 5.3 mm |
+| BA500-3AB 350 Ω | 350 Ω | 2.0 | 4.5 × 3.0 mm |
+| BA500-3AB 1 kΩ | 1000 Ω | 2.0 | 4.5 × 3.0 mm |
+| BA300-3AF 350 Ω | 350 Ω | 2.0 | 3.0 × 1.7 mm |
+| BFL-350 | 350 Ω | 2.0 | 3.0 × 3.0 mm |
+| BFL-1K | 1000 Ω | 2.0 | 3.0 × 3.0 mm |
+| 350 Ω foil | 350 Ω | 2.0 | You type it |
+| Generic 1 kΩ foil | 1000 Ω | 2.0 | 4.0 × 5.0 mm, a placeholder |
+| Custom gauge | You type it | You type it | You type it |
 
 Bridge:
 

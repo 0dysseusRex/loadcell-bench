@@ -54,7 +54,7 @@ The bending calculator starts on the Custom K2 Loadcell: 6061-T6, 0.100 in, four
 
 The Build tab also takes a DXF sketch. Click two points to fill a neck width or length, or click to place a gauge and see whether the grid fits the neck. DWG files need Save As DXF first. The click check is a fit, not a stress analysis.
 
-The gauge card takes BA1000-3AA, a 350 Ω foil, or a custom factor. A half bridge or a quarter bridge scales the output for arms that are completion resistors. A scale you type, or a fit you apply, replaces the sketch in the simulator and on the live grams.
+The gauge card takes a preset — BA1000-3AA, BA1000-3A 1 kΩ, BA500-3AB in 350 Ω or 1 kΩ, BA300-3AF 350 Ω, BFL-350, BFL-1K, a 350 Ω foil, a generic 1 kΩ foil — or a custom factor. A half bridge or a quarter bridge scales the output for arms that are completion resistors. A scale you type, or a fit you apply, replaces the sketch in the simulator and on the live grams.
 
 A guide along the left starts with the amp menu at the top right: pick the board, then Connect or Use simulator. After that it walks through naming the cell, the live counts, and speed, accuracy, and range. On a narrow screen that guide sits above the tabs and can be hidden. When those three tests have results, Compile results opens one page in plain language. Print it from the browser if you want a copy.
 

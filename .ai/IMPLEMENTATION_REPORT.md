@@ -57,7 +57,7 @@ No requirement was reworded or dropped. Nothing outside R-S01..R-S28 was touched
 | R-S21 | `src/lib/analyze.ts`; `wiki/results.md` | "R-S21" |
 | R-S22 | `src/lib/guide.ts`; `src/lib/report.ts`; `wiki/results.md` | "R-S22"; `guide.test.ts` |
 | R-S23 | `src/lib/cell-file.ts`; `src/lib/frontends.ts` | "R-S23"; `cell-file.test.ts` |
-| R-S24 | `src/lib/model.ts` | "R-S24"; `analyze.test.ts` |
+| R-S24 | `src/lib/model.ts`; `wiki/build.md` | "R-S24"; `analyze.test.ts` (the preset catalogue assertions are in the R-S24 test) |
 | R-S25 | `src/lib/dxf.ts`; `src/components/sketch-upload.tsx` | "R-S25"; `dxf.test.ts` |
 | R-S26 | `src/lib/simulator.ts`; `wiki/connect.md` | "R-S26"; `analyze.test.ts` |
 | R-S27 | `launcher/bench_launcher.py` | "R-S27"; `launcher/test_bench_launcher.py` |
@@ -75,6 +75,13 @@ No requirement was reworded or dropped. Nothing outside R-S01..R-S28 was touched
 
 `npm test` was 55 tests before this pass and is 83 now: the 28 new acceptance
 tests, one per requirement id.
+
+The Build tab gauge list under R-S24 now holds ten presets: BA1000-3AA,
+BA1000-3A 1 kΩ, BA500-3AB 350 Ω, BA500-3AB 1 kΩ, BA300-3AF 350 Ω, BFL-350,
+BFL-1K, a 350 Ω foil, a generic 1 kΩ foil, and a custom gauge. The dropdown in
+`src/components/bench-app.tsx` maps `GAUGE_PRESETS`, so it picks the new rows up
+without a UI edit. `custom` stays last because `gaugeById` falls back to the last
+entry.
 
 ## Notes for QA
 

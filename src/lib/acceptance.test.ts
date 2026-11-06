@@ -30,6 +30,8 @@ import {
   CELL,
   CELL_PROFILES,
   GAINS,
+  GAUGE_PRESETS,
+  gaugeById,
   H36_PINS,
   H36_V1_ADS_PINS,
   isTurboRate,
@@ -421,6 +423,49 @@ test("R-S24 the Custom K2 plate profile, the bending sketch and the bridge facto
   });
   assert.ok(bending, "bending sketch returned nothing");
   assert.ok(bending.stiffnessNPerMm > 0);
+
+  // The Build tab offers the foils that turn up in cheap cells, not only the
+  // BA1000-3AA the Custom K2 uses.
+  assert.deepEqual(
+    GAUGE_PRESETS.map((preset) => preset.id),
+    [
+      "ba1000-3aa",
+      "ba1000-3a-1k",
+      "ba500-3ab-350",
+      "ba500-3ab-1k",
+      "ba300-3af-350",
+      "bfl-350",
+      "bfl-1k",
+      "foil-350",
+      "generic-foil-1k",
+      "custom",
+    ],
+  );
+  const catalogue: Array<[string, number, number, number]> = [
+    ["ba1000-3a-1k", 1000, 3.0, 5.3],
+    ["ba500-3ab-350", 350, 4.5, 3.0],
+    ["ba500-3ab-1k", 1000, 4.5, 3.0],
+    ["ba300-3af-350", 350, 3.0, 1.7],
+    ["bfl-350", 350, 3.0, 3.0],
+    ["bfl-1k", 1000, 3.0, 3.0],
+    ["generic-foil-1k", 1000, 4.0, 5.0],
+  ];
+  for (const [id, ohm, widthMm, lengthMm] of catalogue) {
+    const preset = gaugeById(id);
+    assert.equal(preset.id, id, `${id} did not resolve to itself`);
+    assert.equal(preset.resistanceOhm, ohm, `${id} resistance`);
+    assert.equal(preset.gaugeFactor, 2, `${id} gauge factor`);
+    assert.equal(preset.gridWidthMm, widthMm, `${id} grid width`);
+    assert.equal(preset.gridLengthMm, lengthMm, `${id} grid length`);
+    assert.ok(preset.name.length > 0 && preset.note.length > 0, `${id} has no name or note`);
+  }
+  // Custom has to stay last: gaugeById falls back to the last preset.
+  assert.equal(GAUGE_PRESETS[GAUGE_PRESETS.length - 1].id, "custom");
+  assert.equal(gaugeById("no-such-gauge").id, "custom");
+
+  // The dropdown is data driven, and the wiki lists the new parts.
+  assert.match(read("src/components/bench-app.tsx"), /GAUGE_PRESETS\.map/);
+  assert.match(read("wiki/build.md"), /BA500-3AB/);
 });
 
 // R-S25 ---------------------------------------------------------------
