@@ -13,8 +13,24 @@ import {
   expandEnums,
 } from "./codec.ts";
 
+// The oracle must be a second implementation, not the code under test, so it
+// runs in Python. Pick whichever interpreter name this machine actually has:
+// CI and Linux use python3, Windows usually only has python or the py launcher.
+let resolvedPython: string | null = null;
+function python(): string {
+  if (resolvedPython) return resolvedPython;
+  for (const candidate of ["python3", "python", "py"]) {
+    const probe = spawnSync(candidate, ["-c", "print(1)"], { encoding: "utf8" });
+    if (probe.status === 0 && probe.stdout.trim() === "1") {
+      resolvedPython = candidate;
+      return candidate;
+    }
+  }
+  throw new Error("No Python interpreter found (tried python3, python, py).");
+}
+
 function py(code: string): string {
-  const result = spawnSync("python3", ["-c", code], { encoding: "utf8" });
+  const result = spawnSync(python(), ["-c", code], { encoding: "utf8" });
   assert.equal(result.status, 0, result.stderr);
   return result.stdout.trim();
 }

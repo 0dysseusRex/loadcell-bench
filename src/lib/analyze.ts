@@ -215,19 +215,22 @@ export function judgeAccuracy(
   },
 ): AccuracyVerdict {
   const allowance = Math.max(GOALS.linearityFloorGrams, GOALS.linearityFraction * extras.maxGrams);
-  const notes: string[] = [];
-  if (fit.r2 < GOALS.minR2) notes.push(`R² is ${fit.r2.toFixed(4)}. The captures are not sitting on a straight line.`);
+  // A line failure is R² or the worst miss. The hysteresis call-out below is a
+  // warning the bench should print, not a reason to fail the line (R-S19).
+  const blocking: string[] = [];
+  if (fit.r2 < GOALS.minR2) blocking.push(`R² is ${fit.r2.toFixed(4)}. The captures are not sitting on a straight line.`);
   if (fit.maxAbsErrorGrams > allowance) {
-    notes.push(
+    blocking.push(
       `Largest miss is ${fit.maxAbsErrorGrams.toFixed(2)} g. The bar for this set of masses is ${allowance.toFixed(2)} g.`,
     );
   }
-  if (fit.countsPerGram <= 0) notes.push("The scale came out negative. Pressing on the cell may be wired backwards. Invert the sign and capture again.");
+  if (fit.countsPerGram <= 0) blocking.push("The scale came out negative. Pressing on the cell may be wired backwards. Invert the sign and capture again.");
+  const notes: string[] = [...blocking];
   const hyst = extras.hysteresisGrams ?? null;
   if (hyst !== null && hyst > GOALS.hysteresisFraction * extras.maxGrams) {
     notes.push(`Unload disagrees with load by ${hyst.toFixed(2)} g. Loctite 401 and a thick 9460 coat both do this.`);
   }
-  const pass = notes.length === 0 && fit.countsPerGram > 0;
+  const pass = blocking.length === 0 && fit.countsPerGram > 0;
   return {
     pass,
     notes,
@@ -303,14 +306,18 @@ export function analyzeRange(input: {
   if (noiseRmsGrams === null) notes.push("Calibrate on the Accuracy tab to turn the noise into grams.");
   if (saturated) notes.push("The ADC hit the rail. That load is past this gain. Drop the gain, or stop there.");
   if (yielded) notes.push("Zero did not come back. The aluminum or the Loctite 401 took a set. Do not use a higher load.");
+  // A gate can only be open when both numbers it rests on are known (R-S21).
   const probeReady =
-    (noiseRmsGrams === null || noiseRmsGrams * 3 <= GOALS.probeNoiseGrams) &&
-    (input.bestRateHz === null || input.bestRateHz >= GOALS.probeMinHz) &&
+    noiseRmsGrams !== null &&
+    noiseRmsGrams * 3 <= GOALS.probeNoiseGrams &&
+    input.bestRateHz !== null &&
+    input.bestRateHz >= GOALS.probeMinHz &&
     !yielded;
   const forceReady =
     noiseRmsGrams !== null &&
     noiseRmsGrams * 3 <= GOALS.forceNoiseGrams &&
-    (input.bestRateHz === null || input.bestRateHz >= GOALS.forceMinHz) &&
+    input.bestRateHz !== null &&
+    input.bestRateHz >= GOALS.forceMinHz &&
     !yielded;
   if (probeReady && noiseRmsGrams !== null) {
     notes.push("Noise and rate are in the range Klipper probing can use.");

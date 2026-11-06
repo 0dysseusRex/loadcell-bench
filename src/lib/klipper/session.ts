@@ -23,7 +23,10 @@ type Waiter = {
   timer: ReturnType<typeof setTimeout>;
 };
 
-const SPI_HZ = 256000;
+/** Klipper talks to the MCU at 250000 baud (R-S05). */
+export const KLIPPER_BAUD = 250000;
+/** ADS1220 SPI is mode 1 at 256 kHz (R-S06). */
+export const SPI_HZ = 256000;
 
 /**
  * Talks to a Klipper USB MCU (H36 Combo, H36 Combo V2, or a Plimsoll alpha board) and
@@ -75,7 +78,7 @@ export class H36Session {
     this.closed = false;
     this.sendSeq = 1n;
     this.receiveSeq = 1n;
-    await port.open({ baudRate: 250000 });
+    await port.open({ baudRate: KLIPPER_BAUD });
     if (!port.writable || !port.readable) throw new Error("The serial port has no data channel");
     this.writer = port.writable.getWriter();
     this.reader = port.readable.getReader();
