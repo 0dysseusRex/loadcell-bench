@@ -50,6 +50,11 @@ next-env.d.ts
 __pycache__/
 *.pyc
 
+# AionUI project files (never push to GitHub)
+/.ai/**
+/.ai-export/**
+/docs/**
+
 # KiCad local state
 *.kicad_prl
 *.lck
